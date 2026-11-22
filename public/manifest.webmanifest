@@ -1,0 +1,17 @@
+{
+  "id": "/whiteboard-lousa-digital",
+  "name": "Lousa digital",
+  "short_name": "Lousa",
+  "description": "Lousa digital para aulas de matemática",
+  "lang": "pt-BR",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "icons": [
+    { "src": "./icons/lousa-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/lousa-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/lousa-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

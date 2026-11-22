@@ -1,0 +1,123 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { Zip, ZipDeflate, zipSync } from "fflate";
+import { Scene } from "../core/scene";
+import { createStroke } from "../core/stroke";
+import type { Brush } from "../core/types";
+import { type PortableBoard, readArchive, writeArchive } from "./archive";
+import { BoardDocument } from "./store";
+
+const brush: Brush = { color: "#123456", size: 4, stabilizer: 35, simulatePressure: true };
+const stroke = createStroke("first", [{ x: 8, y: 13 }, { x: 10, y: 14 }], brush, 0);
+const fixture: PortableBoard = {
+  scene: new Scene([stroke]).snapshot(),
+  assets: [{ id: "asset-1", mime: "application/pdf", bytes: Uint8Array.of(1, 2, 3, 255) }],
+};
+const utf8 = new TextEncoder();
+
+function entries(version = 1): Record<string, Uint8Array> {
+  const { id, mime, bytes } = fixture.assets[0];
+  return {
+    "manifest.json": utf8.encode(JSON.stringify({
+      format: "board", version, scenePath: "scene.json",
+      assets: [{ id, mime, path: "assets/" + id, size: bytes.length }],
+    })),
+    "scene.json": utf8.encode(JSON.stringify(fixture.scene)),
+    ["assets/" + id]: bytes,
+  };
+}
+
+function view(buffer: Uint8Array): DataView {
+  return new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+}
+
+describe("portable .board", () => {
+  it("round-trips local geometry and original asset bytes", () => {
+    assert.deepEqual(readArchive(writeArchive(fixture)), fixture);
+    assert.deepEqual(readArchive(zipSync(entries(), { level: 0 })), fixture);
+  });
+
+  it("accepts a ZIP written with streamed DEFLATE entries and data descriptors", () => {
+    const chunks: Uint8Array[] = [];
+    const zip = new Zip((error, chunk) => {
+      if (error) throw error;
+      chunks.push(chunk);
+    });
+    for (const [name, bytes] of Object.entries(entries())) {
+      const file = new ZipDeflate(name);
+      zip.add(file);
+      file.push(bytes, true);
+    }
+    zip.end();
+    assert.deepEqual(readArchive(Buffer.concat(chunks)), {
+      scene: fixture.scene,
+      assets: fixture.assets,
+    });
+  });
+
+  it("rejects a missing directory, unsafe entry and unknown archive version", () => {
+    const archive = writeArchive(fixture);
+    assert.throws(() => readArchive(archive.subarray(0, archive.length - 1)));
+    assert.throws(() => readArchive(zipSync({ ...entries(), "../scene.json": Uint8Array.of(0) })));
+    assert.throws(() => readArchive(zipSync(entries(2))), /manifest/);
+  });
+
+  it("rejects a mismatched checksum and impossible size before installing the board", () => {
+    const damaged = zipSync(entries(), { level: 0 });
+    const header = view(damaged);
+    const firstBody = 30 + header.getUint16(26, true) + header.getUint16(28, true);
+    damaged[firstBody] ^= 0x01;
+    assert.throws(() => readArchive(damaged), /corrupt/);
+
+    const oversized = writeArchive(fixture);
+    const directory = view(oversized);
+    const firstCentralHeader = directory.getUint32(oversized.length - 6, true);
+    directory.setUint32(firstCentralHeader + 24, 1024 * 1024 * 1024, true);
+    assert.throws(() => readArchive(oversized), /limit/);
+  });
+
+  it("rejects missing assets, duplicate objects and non-finite geometry", () => {
+    const missing = entries();
+    delete missing["assets/asset-1"];
+    assert.throws(() => readArchive(zipSync(missing)), /asset/);
+    assert.throws(() => writeArchive({
+      ...fixture, scene: { version: 1, objects: [stroke, stroke] },
+    }), /scene object/);
+    assert.throws(() => writeArchive({
+      ...fixture, scene: { version: 1, objects: [{ ...stroke, zIndex: Infinity }] },
+    }), /scene object/);
+  });
+});
+
+describe("document edits when local storage is unavailable", () => {
+  it("retains the scene in memory, supports redo, and drops the redo branch on a new edit", async () => {
+    const scene = new Scene();
+    const doc = await BoardDocument.open(scene);
+    assert.equal(doc.status, "error");
+    scene.add(stroke);
+    doc.recordStroke(stroke);
+    assert.equal(doc.canUndo, true);
+    assert.ok(doc.undo());
+    assert.deepEqual(doc.portable().scene.objects, []);
+    assert.ok(doc.redo());
+    assert.deepEqual(doc.portable().scene.objects, [stroke]);
+    assert.ok(doc.undo());
+
+    const newStroke = { ...stroke, id: "second" };
+    scene.add(newStroke);
+    doc.recordStroke(newStroke);
+    assert.equal(doc.canRedo, false);
+    assert.deepEqual(doc.portable().scene.objects, [newStroke]);
+    await assert.rejects(doc.flush());
+    doc.close();
+  });
+
+  it("keeps active objects when a replacement cannot be indexed", async () => {
+    const scene = new Scene();
+    const doc = await BoardDocument.open(scene);
+    await doc.replace(fixture);
+    await assert.rejects(doc.replace({ ...fixture, scene: { version: 1, objects: [stroke, stroke] } }));
+    assert.deepEqual(doc.portable(), fixture);
+    doc.close();
+  });
+});
