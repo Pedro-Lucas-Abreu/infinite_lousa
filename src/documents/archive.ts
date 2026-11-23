@@ -1,6 +1,6 @@
 import { Unzip, UnzipInflate, zipSync } from "fflate";
 import type { SceneSnapshot } from "../core/scene";
-import { type Affine, type BoardObject, type Brush, type StrokePoint, isPageObject } from "../core/types";
+import { type Affine, type BoardObject, type Brush, type Point, type ShapeKind, type StrokePoint, isPageObject } from "../core/types";
 
 const MAX_ARCHIVE = 128 * 1024 * 1024;
 const MAX_TOTAL = 192 * 1024 * 1024;
@@ -174,13 +174,27 @@ function isId(value: unknown): value is string {
   return typeof value === "string" && idPattern.test(value);
 }
 
-function isPoint(value: unknown): value is StrokePoint {
-  return isRecord(value) && finite(value.x) && finite(value.y) &&
-    (value.pressure === undefined || (finite(value.pressure) && value.pressure >= 0 && value.pressure <= 1));
+function isPoint(value: unknown): value is Point {
+  return isRecord(value) && finite(value.x) && finite(value.y);
+}
+
+function isStrokePoint(value: unknown): value is StrokePoint {
+  if (!isPoint(value)) return false;
+  return !("pressure" in value) || value.pressure === undefined ||
+    (finite(value.pressure) && value.pressure >= 0 && value.pressure <= 1);
+}
+
+function isColor(value: unknown): value is string {
+  return typeof value === "string" && hexColorPattern.test(value);
+}
+
+function isShapeKind(value: unknown): value is ShapeKind {
+  return value === "line" || value === "arrow" || value === "rectangle" ||
+    value === "ellipse" || value === "polygon";
 }
 
 function isBrush(value: unknown): value is Brush {
-  return isRecord(value) && typeof value.color === "string" && hexColorPattern.test(value.color) &&
+  return isRecord(value) && isColor(value.color) &&
     finite(value.size) && value.size >= 1e-20 && value.size <= 1e20 &&
     finite(value.stabilizer) && value.stabilizer >= 0 && value.stabilizer <= 100 &&
     (value.opacity === undefined || (finite(value.opacity) && value.opacity >= 0 && value.opacity <= 1)) &&
@@ -222,13 +236,24 @@ function validateScene(scene: unknown): SceneSnapshot {
     if (object.type === "stroke") {
       if (props.version !== 1 || !isBrush(props.brush) ||
           !Array.isArray(props.points) || props.points.length === 0 ||
-          (pointCount += props.points.length) > MAX_POINTS || !props.points.every(isPoint)) {
+          (pointCount += props.points.length) > MAX_POINTS || !props.points.every(isStrokePoint)) {
         throw new Error("Invalid stroke geometry or point count limit exceeded.");
       }
       return {
         ...base, ...attachment, type: "stroke",
         props: { version: 1, points: props.points, brush: props.brush },
       };
+    }
+
+    if (object.type === "shape") {
+      const { kind, points, color, size } = props;
+      if (!isShapeKind(kind) || !Array.isArray(points) ||
+          points.length < (kind === "polygon" ? 3 : 2) ||
+          (pointCount += points.length) > MAX_POINTS || !points.every(isPoint) ||
+          !isColor(color) || !finite(size) || size <= 0) {
+        throw new Error("Invalid shape geometry or style.");
+      }
+      return { ...base, ...attachment, type: "shape", props: { kind, points, color, size } };
     }
 
     const { width, height } = props;
@@ -238,6 +263,13 @@ function validateScene(scene: unknown): SceneSnapshot {
     if (object.type === "frame") {
       if (typeof props.name !== "string" || !finite(props.order)) throw new Error("Invalid frame.");
       return { ...base, ...attachment, type: "frame", props: { width, height, name: props.name, order: props.order } };
+    }
+    if (object.type === "text") {
+      const { text, color, fontSize } = props;
+      if (typeof text !== "string" || !isColor(color) || !finite(fontSize) || fontSize <= 0) {
+        throw new Error("Invalid text object.");
+      }
+      return { ...base, ...attachment, type: "text", props: { text, width, height, color, fontSize } };
     }
     if (object.type === "image" || object.type === "pdfPage") {
       if (!isId(props.assetId) || object.parentId !== undefined ||

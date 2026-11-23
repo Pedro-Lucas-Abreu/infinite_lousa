@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { panBy, screenToWorld, viewportBounds, worldToScreen, zoomAt } from "./camera";
-import { type SceneSnapshot, Scene } from "./scene";
+import { type SceneSnapshot, Scene, objectBounds } from "./scene";
+import { shapeArrowHead } from "./shapes";
 import { createStroke, StrokeInput, strokeOutline } from "./stroke";
-import type { Brush, Camera } from "./types";
+import type { Brush, Camera, ShapeObject } from "./types";
 
 const viewport = { width: 960, height: 540 };
 const camera: Camera = { x: 0, y: 0, zoom: 1 };
@@ -91,6 +92,23 @@ describe("stroke", () => {
 });
 
 describe("scene", () => {
+  it("indexes an arrow past its shaft using a rotated and scaled arrowhead", () => {
+    const start = { x: 0, y: 0 };
+    const end = { x: 100, y: 0 };
+    const arrow: ShapeObject = {
+      id: "arrow", type: "shape", locked: false, zIndex: 1,
+      transform: [0, 2, -3, 0, 100, 200],
+      props: { kind: "arrow", points: [start, end], color: "#192038", size: 4 },
+    };
+    const scene = new Scene([arrow]);
+    assert.deepEqual(shapeArrowHead(start, end, 4), [
+      { x: 80, y: 10 }, end, { x: 80, y: -10 },
+    ]);
+    assert.deepEqual(objectBounds(arrow), { minX: 64, minY: 196, maxX: 136, maxY: 404 });
+    assert.deepEqual(scene.search({ minX: 68, minY: 358, maxX: 72, maxY: 362 }), [arrow]);
+    assert.deepEqual(shapeArrowHead(start, start, 4), []);
+  });
+
   it("queries transformed stroke bounds and returns stable z-order", () => {
     const rotated = {
       ...createStroke("a", [{ x: 0, y: 0 }, { x: 10, y: 0 }], brush, 2),

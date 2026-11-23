@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { Zip, ZipDeflate, zipSync } from "fflate";
 import { Scene, objectBounds } from "../core/scene";
 import { createStroke } from "../core/stroke";
-import type { Brush, FrameObject, PageObject, Stroke } from "../core/types";
+import type { Brush, FrameObject, PageObject, ShapeObject, Stroke, TextObject } from "../core/types";
 import { type PortableBoard, readArchive, writeArchive } from "./archive";
 import { BoardDocument } from "./store";
 
@@ -108,6 +108,33 @@ describe("portable .board", () => {
     assert.throws(() => writeArchive({
       ...mixed, scene: { version: 1, objects: [frame, ink] },
     }), /attachment parent/);
+  });
+
+  it("round-trips shapes and laid-out text in v1 while rejecting invalid geometry", () => {
+    const shape: ShapeObject = {
+      id: "triangle", type: "shape", locked: false, zIndex: 10, parentId: page.id,
+      transform: [1, 0, 0, 1, 20, 30],
+      props: {
+        kind: "polygon", points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 16, y: 15 }],
+        color: "#192038", size: 2,
+      },
+    };
+    const text: TextObject = {
+      id: "explanation", type: "text", locked: false, zIndex: 11, parentId: page.id,
+      transform: [1, 0, 0, 1, 30, 55],
+      props: { text: "Ângulo α\n85°", color: "#192038", fontSize: 16, width: 80, height: 38 },
+    };
+    const board = { ...mixed, scene: new Scene([...mixed.scene.objects, shape, text]).snapshot() };
+    const withInvalid = (object: ShapeObject | TextObject) => ({
+      ...mixed, scene: { ...mixed.scene, objects: [...mixed.scene.objects, object] },
+    });
+    assert.deepEqual(readArchive(writeArchive(board)), board);
+    assert.throws(() => writeArchive(withInvalid({
+      ...shape, props: { ...shape.props, points: shape.props.points.slice(0, 2) },
+    })), /shape/);
+    assert.throws(() => writeArchive(withInvalid({
+      ...text, props: { ...text.props, fontSize: 0 },
+    })), /text/);
   });
 });
 

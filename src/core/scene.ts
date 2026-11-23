@@ -1,6 +1,7 @@
 import RBush from "rbush";
+import { shapeArrowHead } from "./shapes";
 import { strokeOutline } from "./stroke";
-import type { BoardChange, BoardObject, Bounds } from "./types";
+import type { Affine, BoardChange, BoardObject, Bounds, Point, ShapeObject } from "./types";
 
 interface IndexedObject extends Bounds {
   readonly object: BoardObject;
@@ -15,27 +16,24 @@ function compareObjects(a: BoardObject, b: BoardObject): number {
   return a.zIndex - b.zIndex || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
-export function objectBounds(object: BoardObject): Bounds {
-  const [a, b, c, d, e, f] = object.transform;
-  if (object.type !== "stroke") {
-    const { width, height } = object.props;
-    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-      throw new RangeError("Rectangular objects need finite positive dimensions.");
-    }
-    // An affine rectangle reaches its extrema at its four corners.
-    return {
-      minX: e + Math.min(0, a * width) + Math.min(0, c * height),
-      minY: f + Math.min(0, b * width) + Math.min(0, d * height),
-      maxX: e + Math.max(0, a * width) + Math.max(0, c * height),
-      maxY: f + Math.max(0, b * width) + Math.max(0, d * height),
-    };
-  }
+function rectangleBounds([a, b, c, d, e, f]: Affine, x: number, y: number, width: number, height: number): Bounds {
+  // An affine rectangle reaches its extrema at its four corners.
+  const left = a * x + c * y + e;
+  const top = b * x + d * y + f;
+  return {
+    minX: left + Math.min(0, a * width) + Math.min(0, c * height),
+    minY: top + Math.min(0, b * width) + Math.min(0, d * height),
+    maxX: left + Math.max(0, a * width) + Math.max(0, c * height),
+    maxY: top + Math.max(0, b * width) + Math.max(0, d * height),
+  };
+}
 
+function pointBounds(points: readonly Point[], [a, b, c, d, e, f]: Affine): Bounds {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  for (const point of strokeOutline(object)) {
+  for (const point of points) {
     const x = a * point.x + c * point.y + e;
     const y = b * point.x + d * point.y + f;
     minX = Math.min(minX, x);
@@ -44,6 +42,47 @@ export function objectBounds(object: BoardObject): Bounds {
     maxY = Math.max(maxY, y);
   }
   return { minX, minY, maxX, maxY };
+}
+
+function shapeBounds(object: ShapeObject): Bounds {
+  const { kind, points, size } = object.props;
+  const start = points[0];
+  const end = points.at(-1);
+  if (!start || !end || !Number.isFinite(size) || size <= 0) {
+    throw new RangeError("A shape needs finite points and positive stroke size.");
+  }
+
+  let bounds: Bounds;
+  if (kind === "rectangle" || kind === "ellipse") {
+    const x = Math.min(start.x, end.x);
+    const y = Math.min(start.y, end.y);
+    bounds = rectangleBounds(object.transform, x, y, Math.abs(end.x - start.x), Math.abs(end.y - start.y));
+  } else {
+    const vertices = kind === "polygon" ? points :
+      kind === "arrow" ? [start, end, ...shapeArrowHead(start, end, size)] : [start, end];
+    bounds = pointBounds(vertices, object.transform);
+  }
+  const [a, b, c, d] = object.transform;
+  const radius = size / 2;
+  const padX = Math.hypot(a, c) * radius;
+  const padY = Math.hypot(b, d) * radius;
+  return {
+    minX: bounds.minX - padX,
+    minY: bounds.minY - padY,
+    maxX: bounds.maxX + padX,
+    maxY: bounds.maxY + padY,
+  };
+}
+
+export function objectBounds(object: BoardObject): Bounds {
+  if (object.type === "stroke") return pointBounds(strokeOutline(object), object.transform);
+  if (object.type === "shape") return shapeBounds(object);
+
+  const { width, height } = object.props;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new RangeError("Rectangular objects need finite positive dimensions.");
+  }
+  return rectangleBounds(object.transform, 0, 0, width, height);
 }
 
 function indexObject(object: BoardObject): IndexedObject {

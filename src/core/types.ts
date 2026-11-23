@@ -78,7 +78,32 @@ export interface FrameObject extends ObjectBase {
   };
 }
 
-export type BoardObject = Stroke | PageObject | FrameObject;
+export interface TextObject extends ObjectBase {
+  readonly type: "text";
+  readonly parentId?: string;
+  readonly props: {
+    readonly text: string;
+    readonly width: number;
+    readonly height: number;
+    readonly color: string;
+    readonly fontSize: number;
+  };
+}
+
+export type ShapeKind = "line" | "arrow" | "rectangle" | "ellipse" | "polygon";
+
+export interface ShapeObject extends ObjectBase {
+  readonly type: "shape";
+  readonly parentId?: string;
+  readonly props: {
+    readonly kind: ShapeKind;
+    readonly points: readonly Point[];
+    readonly color: string;
+    readonly size: number;
+  };
+}
+
+export type BoardObject = Stroke | PageObject | FrameObject | TextObject | ShapeObject;
 
 export interface BoardChange {
   readonly before?: BoardObject;
