@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Zip, ZipDeflate, zipSync } from "fflate";
-import { Scene } from "../core/scene";
+import { Scene, objectBounds } from "../core/scene";
 import { createStroke } from "../core/stroke";
-import type { Brush } from "../core/types";
+import type { Brush, FrameObject, PageObject, Stroke } from "../core/types";
 import { type PortableBoard, readArchive, writeArchive } from "./archive";
 import { BoardDocument } from "./store";
 
@@ -13,6 +13,18 @@ const fixture: PortableBoard = {
   scene: new Scene([stroke]).snapshot(),
   assets: [{ id: "asset-1", mime: "application/pdf", bytes: Uint8Array.of(1, 2, 3, 255) }],
 };
+const page: PageObject = {
+  id: "page-1", type: "pdfPage", locked: true, transform: [0, 1, -1, 0, 200, 0], zIndex: -1,
+  props: { width: 160, height: 120, assetId: "asset-1", pageIndex: 0 },
+};
+const frame: FrameObject = {
+  id: "frame-1", type: "frame", locked: false, transform: page.transform, zIndex: 5,
+  parentId: page.id, props: { width: 160, height: 120, name: "Página 1", order: 0 },
+};
+const ink: Stroke = {
+  ...stroke, parentId: page.id, props: { ...stroke.props, brush: { ...brush, opacity: 0.35 } },
+};
+const mixed: PortableBoard = { ...fixture, scene: new Scene([page, frame, ink]).snapshot() };
 const utf8 = new TextEncoder();
 
 function entries(version = 1): Record<string, Uint8Array> {
@@ -87,6 +99,16 @@ describe("portable .board", () => {
       ...fixture, scene: { version: 1, objects: [{ ...stroke, zIndex: Infinity }] },
     }), /scene object/);
   });
+
+  it("keeps v1 ink and assets backward-compatible while carrying page and frame attachments", () => {
+    assert.deepEqual(readArchive(zipSync(entries(), { level: 0 })), fixture);
+    assert.deepEqual(readArchive(writeArchive(mixed)), mixed);
+    assert.deepEqual(objectBounds(page), { minX: 80, minY: 0, maxX: 200, maxY: 160 });
+    assert.throws(() => writeArchive({ ...mixed, assets: [] }), /page asset/);
+    assert.throws(() => writeArchive({
+      ...mixed, scene: { version: 1, objects: [frame, ink] },
+    }), /attachment parent/);
+  });
 });
 
 describe("document edits when local storage is unavailable", () => {
@@ -118,6 +140,35 @@ describe("document edits when local storage is unavailable", () => {
     await doc.replace(fixture);
     await assert.rejects(doc.replace({ ...fixture, scene: { version: 1, objects: [stroke, stroke] } }));
     assert.deepEqual(doc.portable(), fixture);
+    doc.close();
+  });
+
+  it("keeps page edits, attached ink, frame and assets consistent across undo and redo", async () => {
+    const scene = new Scene();
+    const doc = await BoardDocument.open(scene);
+    const attach = [{ after: page }, { after: frame }, { after: ink }];
+    assert.throws(() => doc.applyChanges(attach), /asset/);
+    assert.deepEqual(scene.all(), []);
+    doc.applyChanges(attach, fixture.assets);
+    assert.deepEqual(doc.portable(), mixed);
+    assert.deepEqual(doc.asset(page.props.assetId), fixture.assets[0]);
+    assert.ok(doc.undo());
+    assert.deepEqual(scene.all(), []);
+    assert.deepEqual(doc.asset(page.props.assetId), fixture.assets[0]);
+    assert.ok(doc.redo());
+    assert.deepEqual(doc.portable(), mixed);
+
+    assert.throws(() => doc.applyChanges([{ before: page }]), /Detach/);
+    const detached = { ...ink, parentId: undefined };
+    const detachedFrame = { ...frame, parentId: undefined };
+    doc.applyChanges([
+      { before: page },
+      { before: ink, after: detached },
+      { before: frame, after: detachedFrame },
+    ]);
+    assert.deepEqual(scene.all(), [detached, detachedFrame]);
+    assert.ok(doc.undo());
+    assert.deepEqual(doc.portable(), mixed);
     doc.close();
   });
 });

@@ -37,17 +37,54 @@ export interface Brush {
   readonly size: number;
   readonly stabilizer: number;
   readonly simulatePressure: boolean;
+  readonly opacity?: number;
 }
 
-export interface Stroke {
+interface ObjectBase {
   readonly id: string;
-  readonly type: "stroke";
   readonly transform: Affine;
   readonly zIndex: number;
   readonly locked: boolean;
+}
+
+export interface Stroke extends ObjectBase {
+  readonly type: "stroke";
+  readonly parentId?: string;
   readonly props: {
     readonly points: readonly StrokePoint[];
     readonly brush: Brush;
     readonly version: 1;
   };
+}
+
+export interface PageObject extends ObjectBase {
+  readonly type: "image" | "pdfPage";
+  readonly props: {
+    readonly width: number;
+    readonly height: number;
+    readonly assetId: string;
+    readonly pageIndex?: number;
+  };
+}
+
+export interface FrameObject extends ObjectBase {
+  readonly type: "frame";
+  readonly parentId?: string;
+  readonly props: {
+    readonly width: number;
+    readonly height: number;
+    readonly name: string;
+    readonly order: number;
+  };
+}
+
+export type BoardObject = Stroke | PageObject | FrameObject;
+
+export interface BoardChange {
+  readonly before?: BoardObject;
+  readonly after?: BoardObject;
+}
+
+export function isPageObject(object: BoardObject | undefined): object is PageObject {
+  return object?.type === "image" || object?.type === "pdfPage";
 }

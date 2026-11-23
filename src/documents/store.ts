@@ -1,6 +1,6 @@
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
 import { Scene } from "../core/scene";
-import type { Stroke } from "../core/types";
+import { type BoardChange, type BoardObject, type Stroke, isPageObject } from "../core/types";
 import type { BoardAsset, PortableBoard } from "./archive";
 
 const DEFAULT_DB_NAME = "whiteboard-local";
@@ -14,25 +14,24 @@ interface Revision {
   historyLength: number;
 }
 
-interface StrokeCommand {
-  type: "add";
-  stroke: Stroke;
-}
+type Command =
+  | { type: "add"; stroke: Stroke }
+  | { type: "changes"; changes: readonly BoardChange[] };
 
 type Edit = {
   type: "edit";
   revision: Revision;
-  direction: "forward" | "backward";
-  stroke: Stroke;
-  insertCommand?: { index: number; command: StrokeCommand; prune: boolean };
+  changes: readonly BoardChange[];
+  assets?: readonly BoardAsset[];
+  insertCommand?: { index: number; command: Command; prune: boolean };
 };
 
 type Replacement = { type: "replace"; revision: Revision; board: PortableBoard };
 
 interface DocumentDB extends DBSchema {
   meta: { key: typeof CURRENT; value: Revision };
-  objects: { key: string; value: Stroke };
-  commands: { key: number; value: StrokeCommand };
+  objects: { key: string; value: BoardObject };
+  commands: { key: number; value: Command };
   assets: { key: string; value: BoardAsset };
 }
 
@@ -42,12 +41,16 @@ function emptyRevision(): Revision {
   return { revision: 0, cursor: 0, historyLength: 0 };
 }
 
+function commandChanges(command: Command): readonly BoardChange[] {
+  return command.type === "add" ? [{ after: command.stroke }] : command.changes;
+}
+
 export class BoardDocument {
   #pending: Edit[] = [];
   #writer: Promise<void> | undefined;
-  #history: StrokeCommand[];
+  #history: Command[];
   #revision: Revision;
-  #assets: readonly BoardAsset[];
+  #assets: Map<string, BoardAsset>;
   #replacing = false;
   #persistenceRequested = false;
   #status: SaveStatus;
@@ -58,13 +61,13 @@ export class BoardDocument {
     private readonly db: IDBPDatabase<DocumentDB> | undefined,
     private readonly onStatus: ((status: SaveStatus) => void) | undefined,
     revision = emptyRevision(),
-    history: StrokeCommand[] = [],
+    history: Command[] = [],
     assets: readonly BoardAsset[] = [],
     openError?: unknown,
   ) {
     this.#revision = revision;
     this.#history = history;
-    this.#assets = assets;
+    this.#assets = new Map(assets.map((asset) => [asset.id, asset]));
     this.#openError = openError;
     this.#status = db ? "saved" : "error";
     onStatus?.(this.#status);
@@ -121,19 +124,68 @@ export class BoardDocument {
 
   recordStroke(stroke: Stroke): void {
     if (this.#replacing) throw new Error("A board replacement is in progress.");
+    this.#record({ type: "add", stroke });
+  }
+
+  applyChanges(changes: readonly BoardChange[], assets: readonly BoardAsset[] = []): void {
+    if (this.#replacing) throw new Error("A board replacement is in progress.");
+    if (!changes.length) return;
+
+    const newAssets = new Map<string, BoardAsset>();
+    for (const asset of assets) {
+      if (this.#assets.has(asset.id) || newAssets.has(asset.id)) throw new Error("Duplicate board asset.");
+      newAssets.set(asset.id, asset);
+    }
+
+    const edited = new Map<string, BoardObject | undefined>();
+    for (const { before, after } of changes) {
+      if (before || after) edited.set((before ?? after!).id, after);
+    }
+    const objectAfterChange = (id: string) => edited.has(id) ? edited.get(id) : this.scene.get(id);
+    for (const { after } of changes) {
+      if (!after) continue;
+      if (isPageObject(after)) {
+        const { assetId } = after.props;
+        const mime = (newAssets.get(assetId) ?? this.#assets.get(assetId))?.mime;
+        if (after.type === "pdfPage" ? mime !== "application/pdf" : !mime?.startsWith("image/")) {
+          throw new Error("Missing or incompatible board asset.");
+        }
+      } else if (after.parentId && !isPageObject(objectAfterChange(after.parentId))) {
+        throw new Error("Missing attachment parent.");
+      }
+    }
+    if (changes.some(({ before, after }) => isPageObject(before) && !after)) {
+      for (const current of this.scene.all()) {
+        const object = objectAfterChange(current.id);
+        if (object && !isPageObject(object) && object.parentId &&
+            !isPageObject(objectAfterChange(object.parentId))) {
+          throw new Error("Detach dependent objects in the same edit before removing their page.");
+        }
+      }
+    }
+
+    this.scene.applyChanges(changes);
+    for (const [id, asset] of newAssets) this.#assets.set(id, asset);
+    this.#record({ type: "changes", changes }, assets);
+  }
+
+  asset(id: string): BoardAsset | undefined {
+    return this.#assets.get(id);
+  }
+
+  #record(command: Command, assets?: readonly BoardAsset[]): void {
     if (this.db && !this.#persistenceRequested) {
       this.#persistenceRequested = true;
       void globalThis.navigator?.storage?.persist?.().catch(() => undefined);
     }
     const index = this.#revision.cursor;
     const prune = index < this.#history.length;
-    const command: StrokeCommand = { type: "add", stroke };
     if (prune) this.#history.length = index;
     this.#history.push(command);
     this.#queue({
       type: "edit",
-      direction: "forward",
-      stroke,
+      changes: commandChanges(command),
+      assets,
       insertCommand: { index, command, prune },
       revision: this.#nextRevision(index + 1),
     });
@@ -142,23 +194,25 @@ export class BoardDocument {
   undo(): boolean {
     if (!this.canUndo) return false;
     const cursor = this.#revision.cursor - 1;
-    const { stroke } = this.#history[cursor];
-    if (!this.scene.remove(stroke.id)) throw new Error("The undo stroke is missing.");
-    this.#queue({ type: "edit", direction: "backward", stroke, revision: this.#nextRevision(cursor) });
+    const changes = commandChanges(this.#history[cursor]).map(({ before, after }) => ({
+      before: after, after: before,
+    }));
+    this.scene.applyChanges(changes);
+    this.#queue({ type: "edit", changes, revision: this.#nextRevision(cursor) });
     return true;
   }
 
   redo(): boolean {
     if (!this.canRedo) return false;
     const cursor = this.#revision.cursor;
-    const { stroke } = this.#history[cursor];
-    this.scene.add(stroke);
-    this.#queue({ type: "edit", direction: "forward", stroke, revision: this.#nextRevision(cursor + 1) });
+    const changes = commandChanges(this.#history[cursor]);
+    this.scene.applyChanges(changes);
+    this.#queue({ type: "edit", changes, revision: this.#nextRevision(cursor + 1) });
     return true;
   }
 
   portable(): PortableBoard {
-    return { scene: this.scene.snapshot(), assets: this.#assets };
+    return { scene: this.scene.snapshot(), assets: Array.from(this.#assets.values()) };
   }
 
   async replace(board: PortableBoard): Promise<void> {
@@ -180,7 +234,7 @@ export class BoardDocument {
       }
       this.scene.replace(inspected.all());
       this.#history = [];
-      this.#assets = board.assets;
+      this.#assets = new Map(board.assets.map((asset) => [asset.id, asset]));
       this.#revision = revision;
       if (this.db) this.#setStatus("saved");
     } finally {
@@ -242,11 +296,15 @@ export class BoardDocument {
     try {
       if (operation.type === "replace") {
         requests.push(objects.clear(), commands.clear(), assets.clear());
-        for (const stroke of operation.board.scene.objects) requests.push(objects.put(stroke, stroke.id));
+        for (const object of operation.board.scene.objects) requests.push(objects.put(object, object.id));
         for (const asset of operation.board.assets) requests.push(assets.put(asset, asset.id));
       } else {
-        const { stroke, insertCommand } = operation;
-        requests.push(operation.direction === "forward" ? objects.put(stroke, stroke.id) : objects.delete(stroke.id));
+        const { changes, insertCommand } = operation;
+        for (const { before, after } of changes) {
+          if (after) requests.push(objects.put(after, after.id));
+          else if (before) requests.push(objects.delete(before.id));
+        }
+        for (const asset of operation.assets ?? []) requests.push(assets.put(asset, asset.id));
         if (insertCommand) {
           const { prune, index, command } = insertCommand;
           if (prune) requests.push(commands.delete(IDBKeyRange.lowerBound(index)));

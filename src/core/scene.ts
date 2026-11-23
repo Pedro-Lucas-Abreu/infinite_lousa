@@ -1,28 +1,41 @@
 import RBush from "rbush";
 import { strokeOutline } from "./stroke";
-import type { Bounds, Stroke } from "./types";
+import type { BoardChange, BoardObject, Bounds } from "./types";
 
-interface IndexedStroke extends Bounds {
-  readonly stroke: Stroke;
+interface IndexedObject extends Bounds {
+  readonly object: BoardObject;
 }
 
 export interface SceneSnapshot {
   readonly version: 1;
-  readonly objects: readonly Stroke[];
+  readonly objects: readonly BoardObject[];
 }
 
-function compareStrokes(a: Stroke, b: Stroke): number {
+function compareObjects(a: BoardObject, b: BoardObject): number {
   return a.zIndex - b.zIndex || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
-function indexStroke(stroke: Stroke): IndexedStroke {
-  const [a, b, c, d, e, f] = stroke.transform;
+export function objectBounds(object: BoardObject): Bounds {
+  const [a, b, c, d, e, f] = object.transform;
+  if (object.type !== "stroke") {
+    const { width, height } = object.props;
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      throw new RangeError("Rectangular objects need finite positive dimensions.");
+    }
+    // An affine rectangle reaches its extrema at its four corners.
+    return {
+      minX: e + Math.min(0, a * width) + Math.min(0, c * height),
+      minY: f + Math.min(0, b * width) + Math.min(0, d * height),
+      maxX: e + Math.max(0, a * width) + Math.max(0, c * height),
+      maxY: f + Math.max(0, b * width) + Math.max(0, d * height),
+    };
+  }
+
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-
-  for (const point of strokeOutline(stroke)) {
+  for (const point of strokeOutline(object)) {
     const x = a * point.x + c * point.y + e;
     const y = b * point.x + d * point.y + f;
     minX = Math.min(minX, x);
@@ -30,95 +43,99 @@ function indexStroke(stroke: Stroke): IndexedStroke {
     maxX = Math.max(maxX, x);
     maxY = Math.max(maxY, y);
   }
-
-  if (![minX, minY, maxX, maxY, stroke.zIndex].every(Number.isFinite)) {
-    throw new RangeError("A stroke must have finite bounds and z-index.");
-  }
-
-  return { minX, minY, maxX, maxY, stroke };
+  return { minX, minY, maxX, maxY };
 }
 
-function union(a: Bounds, b: Bounds): Bounds {
-  return {
-    minX: Math.min(a.minX, b.minX),
-    minY: Math.min(a.minY, b.minY),
-    maxX: Math.max(a.maxX, b.maxX),
-    maxY: Math.max(a.maxY, b.maxY),
-  };
+function indexObject(object: BoardObject): IndexedObject {
+  const bounds = objectBounds(object);
+  if (![bounds.minX, bounds.minY, bounds.maxX, bounds.maxY, object.zIndex].every(Number.isFinite)) {
+    throw new RangeError("A board object must have finite bounds and z-index.");
+  }
+  return { ...bounds, object };
 }
 
 function contains(outer: Bounds, inner: Bounds): boolean {
-  return outer.minX <= inner.minX &&
-    outer.minY <= inner.minY &&
-    outer.maxX >= inner.maxX &&
-    outer.maxY >= inner.maxY;
+  return outer.minX <= inner.minX && outer.minY <= inner.minY &&
+    outer.maxX >= inner.maxX && outer.maxY >= inner.maxY;
 }
 
 export class Scene {
-  #tree = new RBush<IndexedStroke>();
-  #strokes = new Map<string, Stroke>();
-  #ordered: readonly Stroke[] | undefined;
+  #tree = new RBush<IndexedObject>();
+  #entries = new Map<string, IndexedObject>();
+  #ordered: readonly BoardObject[] | undefined;
   #bounds: Bounds | undefined;
   #nextZIndex = 0;
 
-  constructor(strokes: readonly Stroke[] = []) {
-    if (strokes.length > 0) this.replace(strokes);
+  constructor(objects: readonly BoardObject[] = []) {
+    if (objects.length > 0) this.replace(objects);
   }
 
-  add(stroke: Stroke): void {
-    if (this.#strokes.has(stroke.id)) throw new Error("A stroke with this ID already exists.");
+  get(id: string): BoardObject | undefined {
+    return this.#entries.get(id)?.object;
+  }
 
-    const entry = indexStroke(stroke);
-    this.#tree.insert(entry);
-    this.#strokes.set(stroke.id, stroke);
-    const { minX, minY, maxX, maxY } = entry;
-    this.#bounds = this.#bounds ? union(this.#bounds, entry) : { minX, minY, maxX, maxY };
-    this.#nextZIndex = Math.max(this.#nextZIndex, stroke.zIndex + 1);
-    this.#ordered = undefined;
+  add(object: BoardObject): void {
+    this.applyChanges([{ after: object }]);
   }
 
   remove(id: string): boolean {
-    const stroke = this.#strokes.get(id);
-    if (!stroke) return false;
-
-    this.#tree.remove(indexStroke(stroke), (a, b) => a.stroke.id === b.stroke.id);
-    this.#strokes.delete(id);
-    this.#ordered = undefined;
-    // A stale enclosing bound is safe for culling, but callers also use bounds to fit content.
-    const { minX, minY, maxX, maxY } = this.#tree.toJSON() as Bounds;
-    this.#bounds = this.#strokes.size > 0 ? { minX, minY, maxX, maxY } : undefined;
+    const object = this.get(id);
+    if (!object) return false;
+    this.applyChanges([{ before: object }]);
     return true;
   }
 
-  replace(strokes: readonly Stroke[]): void {
-    const replacement = new Map<string, Stroke>();
-    let bounds: Bounds | undefined;
-    let nextZIndex = 0;
-    const entries = strokes.map((stroke) => {
-      if (replacement.has(stroke.id)) throw new Error("A stroke with this ID already exists.");
-
-      const entry = indexStroke(stroke);
-      replacement.set(stroke.id, stroke);
-      const { minX, minY, maxX, maxY } = entry;
-      bounds = bounds ? union(bounds, entry) : { minX, minY, maxX, maxY };
-      nextZIndex = Math.max(nextZIndex, stroke.zIndex + 1);
-      return entry;
+  applyChanges(changes: readonly BoardChange[]): void {
+    if (changes.length === 0) return;
+    const touched = new Set<string>();
+    const prepared = changes.map(({ before, after }) => {
+      const id = before?.id ?? after?.id;
+      if (id === undefined || (after && id !== after.id) || touched.has(id)) {
+        throw new Error("Each change must address a distinct board object.");
+      }
+      const current = this.#entries.get(id);
+      if (Boolean(before) !== Boolean(current) || (before && before.type !== current?.object.type) ||
+          (before && after && before.type !== after.type)) {
+        throw new Error("A scene change does not match the current object.");
+      }
+      touched.add(id);
+      return { id, current, next: after ? indexObject(after) : undefined };
     });
 
-    this.#tree = new RBush<IndexedStroke>().load(entries);
-    this.#strokes = replacement;
-    this.#bounds = bounds;
+    for (const { id, current, next } of prepared) {
+      if (current) this.#tree.remove(current);
+      if (next) {
+        this.#tree.insert(next);
+        this.#entries.set(id, next);
+        this.#nextZIndex = Math.max(this.#nextZIndex, next.object.zIndex + 1);
+      } else {
+        this.#entries.delete(id);
+      }
+    }
+    this.#refreshBounds();
+  }
+
+  replace(objects: readonly BoardObject[]): void {
+    const replacement = new Map<string, IndexedObject>();
+    let nextZIndex = 0;
+    for (const object of objects) {
+      if (replacement.has(object.id)) throw new Error("An object with this ID already exists.");
+      replacement.set(object.id, indexObject(object));
+      nextZIndex = Math.max(nextZIndex, object.zIndex + 1);
+    }
+    this.#tree = new RBush<IndexedObject>().load(Array.from(replacement.values()));
+    this.#entries = replacement;
     this.#nextZIndex = nextZIndex;
-    this.#ordered = undefined;
+    this.#refreshBounds();
   }
 
-  search(bounds: Bounds): readonly Stroke[] {
+  search(bounds: Bounds): readonly BoardObject[] {
     if (this.#bounds && contains(bounds, this.#bounds)) return this.all();
-    return this.#tree.search(bounds).map(({ stroke }) => stroke).sort(compareStrokes);
+    return this.#tree.search(bounds).map(({ object }) => object).sort(compareObjects);
   }
 
-  all(): readonly Stroke[] {
-    return this.#ordered ??= Array.from(this.#strokes.values()).sort(compareStrokes);
+  all(): readonly BoardObject[] {
+    return this.#ordered ??= Array.from(this.#entries.values(), ({ object }) => object).sort(compareObjects);
   }
 
   bounds(): Bounds | undefined {
@@ -131,5 +148,11 @@ export class Scene {
 
   snapshot(): SceneSnapshot {
     return { version: 1, objects: this.all() };
+  }
+
+  #refreshBounds(): void {
+    const { minX, minY, maxX, maxY } = this.#tree.toJSON() as Bounds;
+    this.#bounds = this.#entries.size > 0 ? { minX, minY, maxX, maxY } : undefined;
+    this.#ordered = undefined;
   }
 }

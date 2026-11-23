@@ -1,6 +1,6 @@
 import { Unzip, UnzipInflate, zipSync } from "fflate";
 import type { SceneSnapshot } from "../core/scene";
-import type { Affine, Brush, Stroke, StrokePoint } from "../core/types";
+import { type Affine, type BoardObject, type Brush, type StrokePoint, isPageObject } from "../core/types";
 
 const MAX_ARCHIVE = 128 * 1024 * 1024;
 const MAX_TOTAL = 192 * 1024 * 1024;
@@ -8,7 +8,7 @@ const MAX_ASSET = 64 * 1024 * 1024;
 const MAX_SCENE = 64 * 1024 * 1024;
 const MAX_MANIFEST = 512 * 1024;
 const MAX_FILES = 1024;
-const MAX_STROKES = 100_000;
+const MAX_OBJECTS = 100_000;
 const MAX_POINTS = 2_000_000;
 const CHUNK_SIZE = 16 * 1024;
 const idPattern = /^[a-zA-Z0-9_-]{1,128}$/;
@@ -183,6 +183,7 @@ function isBrush(value: unknown): value is Brush {
   return isRecord(value) && typeof value.color === "string" && hexColorPattern.test(value.color) &&
     finite(value.size) && value.size >= 1e-20 && value.size <= 1e20 &&
     finite(value.stabilizer) && value.stabilizer >= 0 && value.stabilizer <= 100 &&
+    (value.opacity === undefined || (finite(value.opacity) && value.opacity >= 0 && value.opacity <= 1)) &&
     typeof value.simulatePressure === "boolean";
 }
 
@@ -195,33 +196,79 @@ function isAffine(value: unknown): value is Affine {
 
 function validateScene(scene: unknown): SceneSnapshot {
   if (!isRecord(scene) || scene.version !== 1 || !Array.isArray(scene.objects) ||
-      scene.objects.length > MAX_STROKES) {
+      scene.objects.length > MAX_OBJECTS) {
     throw new Error("Invalid or unsupported board scene.");
   }
   const ids = new Set<string>();
   let pointCount = 0;
-  const objects = scene.objects.map((object): Stroke => {
-    if (!isRecord(object) || object.type !== "stroke" || !isId(object.id) || ids.has(object.id) ||
+  const objects = scene.objects.map((object): BoardObject => {
+    if (!isRecord(object) || !isId(object.id) || ids.has(object.id) ||
         typeof object.locked !== "boolean" || !finite(object.zIndex) || !isAffine(object.transform)) {
       throw new Error("Invalid or unsupported scene object.");
     }
     const { props } = object;
-    if (!isRecord(props) || props.version !== 1 || !isBrush(props.brush) ||
-        !Array.isArray(props.points) || props.points.length === 0 ||
-        (pointCount += props.points.length) > MAX_POINTS || !props.points.every(isPoint)) {
-      throw new Error("Invalid stroke geometry or point count limit exceeded.");
+    if (!isRecord(props)) throw new Error("Invalid scene object properties.");
+    if (object.parentId !== undefined && !isId(object.parentId)) {
+      throw new Error("Invalid attachment parent.");
     }
     ids.add(object.id);
-    return {
+    const base = {
       id: object.id,
-      type: "stroke",
       locked: object.locked,
       transform: object.transform,
       zIndex: object.zIndex,
-      props: { version: 1, points: props.points, brush: props.brush },
     };
+    const attachment = object.parentId === undefined ? {} : { parentId: object.parentId };
+    if (object.type === "stroke") {
+      if (props.version !== 1 || !isBrush(props.brush) ||
+          !Array.isArray(props.points) || props.points.length === 0 ||
+          (pointCount += props.points.length) > MAX_POINTS || !props.points.every(isPoint)) {
+        throw new Error("Invalid stroke geometry or point count limit exceeded.");
+      }
+      return {
+        ...base, ...attachment, type: "stroke",
+        props: { version: 1, points: props.points, brush: props.brush },
+      };
+    }
+
+    const { width, height } = props;
+    if (!finite(width) || width <= 0 || !finite(height) || height <= 0) {
+      throw new Error("Invalid rectangular object geometry.");
+    }
+    if (object.type === "frame") {
+      if (typeof props.name !== "string" || !finite(props.order)) throw new Error("Invalid frame.");
+      return { ...base, ...attachment, type: "frame", props: { width, height, name: props.name, order: props.order } };
+    }
+    if (object.type === "image" || object.type === "pdfPage") {
+      if (!isId(props.assetId) || object.parentId !== undefined ||
+          (props.pageIndex !== undefined && (!finite(props.pageIndex) ||
+            !Number.isSafeInteger(props.pageIndex) || props.pageIndex < 0))) {
+        throw new Error("Invalid page asset reference.");
+      }
+      const pageIndex = props.pageIndex === undefined ? {} : { pageIndex: props.pageIndex };
+      return {
+        ...base, type: object.type,
+        props: { width, height, assetId: props.assetId, ...pageIndex },
+      };
+    }
+    throw new Error("Invalid or unsupported scene object.");
   });
   return { version: 1, objects };
+}
+
+function validateReferences(scene: SceneSnapshot, assets: readonly AssetEntry[]): void {
+  const assetById = new Map(assets.map((asset) => [asset.id, asset]));
+  const pages = new Set(scene.objects.filter(isPageObject).map(({ id }) => id));
+  for (const object of scene.objects) {
+    if (isPageObject(object)) {
+      const mime = assetById.get(object.props.assetId)?.mime;
+      if (object.type === "pdfPage" ? mime !== "application/pdf" : !mime?.startsWith("image/")) {
+        throw new Error("Missing or incompatible page asset.");
+      }
+    } else if (object.parentId && !pages.has(object.parentId)) {
+      throw new Error("Missing attachment parent.");
+    }
+  }
 }
 
 function validateAssets(value: unknown): AssetEntry[] {
@@ -249,6 +296,7 @@ export function writeArchive(board: PortableBoard): Uint8Array {
   const assets = validateAssets(board.assets.map(({ id, mime, bytes }) => ({
     id, path: "assets/" + id, mime, size: bytes.length,
   })));
+  validateReferences(scene, assets);
   const manifest = { format: "board", version: 1, scenePath: "scene.json", assets };
   const manifestBytes = encoder.encode(JSON.stringify(manifest));
   const sceneBytes = encoder.encode(JSON.stringify(scene));
@@ -276,6 +324,7 @@ export function readArchive(bytes: Uint8Array): PortableBoard {
   const entries = validateAssets(manifest.assets);
   if (files.size !== entries.length + 2) throw new Error("Board contains unlisted assets.");
   const scene = validateScene(readJson(files, manifest.scenePath));
+  validateReferences(scene, entries);
   const assets = entries.map(({ id, path, mime, size }) => {
     const bytes = files.get(path);
     if (!bytes || bytes.length !== size) throw new Error("Missing or incomplete board asset.");
