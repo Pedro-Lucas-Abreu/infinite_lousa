@@ -1,7 +1,9 @@
 import { strokeOutline } from '../core/stroke'
-import type { Affine, BoardObject, Bounds, Point, Stroke } from '../core/types'
+import type { Affine, BoardObject, Bounds, Point, ShapeObject, Stroke } from '../core/types'
+import { hitContours, type ShapeContour } from './shapes'
 
 const outlines = new WeakMap<BoardObject, readonly Point[]>()
+const shapeOutlines = new WeakMap<ShapeObject, readonly ShapeContour[]>()
 
 export function transformPoint([a, b, c, d, e, f]: Affine, point: Point): Point {
   return { x: a * point.x + c * point.y + e, y: b * point.x + d * point.y + f }
@@ -11,7 +13,7 @@ export function multiplyTransforms([a, b, c, d, e, f]: Affine, [g, h, i, j, k, l
   return [a * g + c * h, b * g + d * h, a * i + c * j, b * i + d * j, a * k + c * l + e, b * k + d * l + f]
 }
 
-export function outline(object: BoardObject): readonly Point[] {
+function outline(object: Exclude<BoardObject, ShapeObject>): readonly Point[] {
   const cached = outlines.get(object)
   if (cached) return cached
 
@@ -85,7 +87,30 @@ function touchesOutline(start: Point, end: Point, polygon: readonly Point[], rad
   return polygon.some((a, i) => nearSegment(start, end, a, polygon[(i + 1) % polygon.length]!, radius))
 }
 
+function worldShapeContours(object: ShapeObject): readonly ShapeContour[] {
+  const cached = shapeOutlines.get(object)
+  if (cached) return cached
+
+  const contours = hitContours(object).map(({ closed, points }) => ({ closed,
+    points: points.map((point) => transformPoint(object.transform, point)) }))
+  shapeOutlines.set(object, contours)
+  return contours
+}
+
+function shapeRadius(object: ShapeObject): number {
+  const [a, b, c, d] = object.transform
+  return object.props.size * Math.max(Math.hypot(a, b), Math.hypot(c, d)) / 2
+}
+
+function touchesContour(start: Point, end: Point, contour: ShapeContour, radius: number): boolean {
+  if (contour.closed) return touchesOutline(start, end, contour.points, radius)
+  return contour.points.some((point, index, points) => index > 0 && nearSegment(start, end, points[index - 1]!, point, radius))
+}
+
 export function hitObject(object: BoardObject, point: Point, radius: number): boolean {
+  if (object.type === 'shape') {
+    return worldShapeContours(object).some((contour) => touchesContour(point, point, contour, radius + shapeRadius(object)))
+  }
   const polygon = outline(object)
   return (object.type !== 'frame' && pointInside(point, polygon)) || touchesOutline(point, point, polygon, radius)
 }
@@ -96,6 +121,11 @@ export function hitInk(stroke: Stroke, start: Point, end: Point, radius: number)
 }
 
 export function regionIntersects(object: BoardObject, region: readonly Point[]): boolean {
+  if (object.type === 'shape') {
+    const radius = shapeRadius(object)
+    return worldShapeContours(object).some((contour) => contour.points.some((point) => pointInside(point, region)) ||
+      region.some((a, index) => touchesContour(a, region[(index + 1) % region.length]!, contour, radius)))
+  }
   const polygon = outline(object)
   const start = polygon[0], regionStart = region[0]
   if (!start || !regionStart) return false

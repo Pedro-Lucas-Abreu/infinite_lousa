@@ -1,8 +1,10 @@
+import { drawShape, drawTextObject, TEXT_LINE_HEIGHT } from "../canvas/drawings";
 import { objectBounds, Scene } from "../core/scene";
+import { shapeArrowHead } from "../core/shapes";
 import { strokeOutline } from "../core/stroke";
-import type { Affine, Bounds, FrameObject, PageObject, Stroke } from "../core/types";
+import type { Affine, Bounds, FrameObject, PageObject, Point, ShapeObject, Stroke, TextObject } from "../core/types";
 import type { BoardAsset, PortableBoard } from "../documents/archive";
-import type { PDFDict, PDFDocument, PDFImage, PDFPage } from "@cantoo/pdf-lib";
+import type { PDFDict, PDFDocument, PDFFont, PDFImage, PDFPage } from "@cantoo/pdf-lib";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { assetBlob, openPdf, renderPdfPage } from "./runtime";
 import type { OriginalPage } from "./source";
@@ -20,10 +22,9 @@ const MAX_PNG_PIXELS = 24_000_000;
 const PDF_FALLBACK_EDGE = 3_600;
 const rgbWhite = [1, 1, 1] as const;
 
-function strokeColor(stroke: Stroke, background: string | undefined): string {
-  const { color } = stroke.props.brush;
+function contrastColor(color: string, background: string | undefined, parentId?: string): string {
   const defaultInk = color === "#192038" || color === "#1a2433";
-  return background === "#171e2d" && !stroke.parentId && defaultInk ? "#ecf2ff" : color;
+  return background === "#171e2d" && !parentId && defaultInk ? "#ecf2ff" : color;
 }
 
 function colorComponents(input: string): readonly [number, number, number] {
@@ -103,7 +104,7 @@ function paintStroke(context: CanvasRenderingContext2D, stroke: Stroke, backgrou
   const outline = strokeOutline(stroke);
   if (!outline.length) return;
   context.globalAlpha = stroke.props.brush.opacity ?? 1;
-  context.fillStyle = strokeColor(stroke, background);
+  context.fillStyle = contrastColor(stroke.props.brush.color, background, stroke.parentId);
   context.beginPath();
   context.moveTo(outline[0].x, outline[0].y);
   for (const point of outline.slice(1)) context.lineTo(point.x, point.y);
@@ -133,6 +134,8 @@ export async function exportPng(board: PortableBoard, options: ExportOptions = {
       context.save();
       context.transform(...object.transform);
       if (object.type === "stroke") paintStroke(context, object, options.background);
+      else if (object.type === "shape") drawShape(context, object, contrastColor(object.props.color, options.background, object.parentId));
+      else if (object.type === "text") drawTextObject(context, object, contrastColor(object.props.color, options.background, object.parentId));
       else {
         const [a, b, c, d] = object.transform;
         const edge = Math.ceil(Math.max(object.props.width * Math.hypot(a, b), object.props.height * Math.hypot(c, d)) * scale);
@@ -175,9 +178,27 @@ async function embedRaster(document: PDFDocument, asset: BoardAsset, rendered?: 
   }
 }
 
+async function embedTextRaster(output: PDFDocument, object: TextObject, color: string): Promise<PDFImage> {
+  const { width, height } = object.props;
+  const scale = Math.min(4, MAX_PNG_EDGE / Math.max(width, height), Math.sqrt(MAX_PNG_PIXELS / width / height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.ceil(width * scale));
+  canvas.height = Math.max(1, Math.ceil(height * scale));
+  try {
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Não foi possível incluir o texto no PDF.");
+    context.scale(canvas.width / width, canvas.height / height);
+    drawTextObject(context, object, color);
+    return await output.embedPng(await (await canvasBlob(canvas)).arrayBuffer());
+  } finally {
+    canvas.width = canvas.height = 0;
+  }
+}
+
 export async function exportPdf(board: PortableBoard, options: ExportOptions = {}): Promise<{
   bytes: Uint8Array;
   fallbackPages: number;
+  fallbackTexts: number;
 }> {
   const pdf = await import("@cantoo/pdf-lib");
   const { embedOriginalPage } = await import("./source");
@@ -188,7 +209,10 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
   const renders = new Map<string, Promise<PDFDocumentProxy>>();
   const embeddedPages = new Map<string, Promise<OriginalPage | PDFImage>>();
   const fallbackPages = new Set<string>();
+  const textRasters = new Map<string, PDFImage>();
   const extStates = new Map<number, PDFDict>();
+  let textFont: PDFFont | undefined;
+  let textCharacters: Set<number> | undefined;
 
   function pushTransform(page: PDFPage, transform: Affine): void {
     page.pushOperators(pdf.pushGraphicsState(), pdf.concatTransformationMatrix(...transform));
@@ -198,9 +222,16 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
     page.pushOperators(pdf.setFillingRgbColor(...color), pdf.rectangle(0, 0, width, height), pdf.fill());
   }
 
-  function vectorInk(page: PDFPage, object: Stroke): void {
-    const [start, ...rest] = strokeOutline(object);
+  function trace(page: PDFPage, points: readonly Point[]): void {
+    const [start, ...rest] = points;
     if (!start) return;
+    page.pushOperators(pdf.moveTo(start.x, start.y));
+    for (const point of rest) page.pushOperators(pdf.lineTo(point.x, point.y));
+  }
+
+  function vectorInk(page: PDFPage, object: Stroke): void {
+    const outline = strokeOutline(object);
+    if (!outline.length) return;
     const opacity = object.props.brush.opacity ?? 1;
     if (opacity !== 1) {
       const state = extStates.get(opacity) ?? output.context.obj({ Type: "ExtGState", ca: opacity });
@@ -208,9 +239,61 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
       const name = page.node.newExtGState("InkOpacity", state);
       page.pushOperators(pdf.setGraphicsState(name));
     }
-    page.pushOperators(pdf.setFillingRgbColor(...colorComponents(strokeColor(object, options.background))), pdf.moveTo(start.x, start.y));
-    for (const point of rest) page.pushOperators(pdf.lineTo(point.x, point.y));
+    const color = contrastColor(object.props.brush.color, options.background, object.parentId);
+    page.pushOperators(pdf.setFillingRgbColor(...colorComponents(color)));
+    trace(page, outline);
     page.pushOperators(pdf.closePath(), pdf.fill());
+  }
+
+  function vectorShape(page: PDFPage, object: ShapeObject): void {
+    const { kind, points, size } = object.props;
+    const start = points[0];
+    const end = points.at(-1);
+    if (!start || !end) return;
+    const color = colorComponents(contrastColor(object.props.color, options.background, object.parentId));
+    page.pushOperators(pdf.setLineCap(pdf.LineCapStyle.Round), pdf.setLineJoin(pdf.LineJoinStyle.Round));
+    if (kind === "ellipse") {
+      page.drawEllipse({
+        x: (start.x + end.x) / 2, y: (start.y + end.y) / 2,
+        xScale: Math.abs(end.x - start.x) / 2, yScale: Math.abs(end.y - start.y) / 2,
+        borderColor: pdf.rgb(...color), borderWidth: size,
+      });
+      return;
+    }
+    page.pushOperators(pdf.setStrokingRgbColor(...color), pdf.setLineWidth(size));
+    if (kind === "rectangle") {
+      page.pushOperators(pdf.rectangle(start.x, start.y, end.x - start.x, end.y - start.y));
+    } else if (kind === "polygon") {
+      trace(page, points);
+      page.pushOperators(pdf.closePath());
+    } else {
+      trace(page, [start, end]);
+      if (kind === "arrow") trace(page, shapeArrowHead(start, end, size));
+    }
+    page.pushOperators(pdf.stroke());
+  }
+
+  async function drawPdfText(page: PDFPage, object: TextObject): Promise<void> {
+    const { text, fontSize, width, height } = object.props;
+    const color = contrastColor(object.props.color, options.background, object.parentId);
+    const lines = text.normalize("NFC").split("\n");
+    const font = textFont ??= await output.embedFont(pdf.StandardFonts.Helvetica);
+    const characters = textCharacters ??= new Set(font.getCharacterSet());
+    const canEncode = lines.every((line) => Array.from(line).every((character) => characters.has(character.codePointAt(0)!)));
+    if (!canEncode) {
+      const raster = textRasters.get(object.id) ?? await embedTextRaster(output, object, color);
+      textRasters.set(object.id, raster);
+      page.pushOperators(pdf.concatTransformationMatrix(1, 0, 0, -1, 0, height));
+      page.drawImage(raster, { x: 0, y: 0, width, height });
+      return;
+    }
+
+    page.pushOperators(pdf.concatTransformationMatrix(1, 0, 0, -1, 0, 0));
+    const ink = pdf.rgb(...colorComponents(color));
+    lines.forEach((line, index) => {
+      if (!line) return;
+      page.drawText(line, { font, size: fontSize, color: ink, x: 0, y: -fontSize * (1 + TEXT_LINE_HEIGHT * index) });
+    });
   }
 
   async function embedPageOrImage(object: PageObject): Promise<OriginalPage | PDFImage> {
@@ -251,6 +334,8 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
         if (object.type === "frame") continue;
         pushTransform(page, object.transform);
         if (object.type === "stroke") vectorInk(page, object);
+        else if (object.type === "shape") vectorShape(page, object);
+        else if (object.type === "text") await drawPdfText(page, object);
         else {
           const { width, height, assetId, pageIndex } = object.props;
           const key = `${assetId}/${object.type === "pdfPage" ? pageIndex ?? 0 : "image"}`;
@@ -273,7 +358,7 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
       }
       page.pushOperators(pdf.popGraphicsState());
     }
-    return { bytes: await output.save(), fallbackPages: fallbackPages.size };
+    return { bytes: await output.save(), fallbackPages: fallbackPages.size, fallbackTexts: textRasters.size };
   } finally {
     await destroySources(renders);
   }

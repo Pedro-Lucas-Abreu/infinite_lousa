@@ -16,6 +16,15 @@ export const tools: ReadonlyArray<{ id: BoardTool; label: string; key: string; i
   { id: 'select', label: 'Seleção', key: 'V', icon: '⬚' },
   { id: 'lasso', label: 'Laço', key: 'B', icon: '⌁' },
   { id: 'hand', label: 'Mão', key: 'M', icon: '✥' },
+  { id: 'text', label: 'Texto', key: 'T', icon: 'T' },
+]
+
+export const shapeTools: typeof tools = [
+  { id: 'line', label: 'Linha', key: 'L', icon: '╱' },
+  { id: 'arrow', label: 'Seta', key: 'A', icon: '↗' },
+  { id: 'rectangle', label: 'Retângulo', key: 'W', icon: '▭' },
+  { id: 'ellipse', label: 'Elipse', key: 'O', icon: '○' },
+  { id: 'polygon', label: 'Polígono', key: 'C', icon: '⬠' },
 ]
 
 const docks: Readonly<Record<Dock, string>> = {
@@ -44,6 +53,7 @@ type Props = {
 
 export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onFavorite, onEditFavorite }: Props) {
   const [dragging, setDragging] = useState(false)
+  const shape = shapeTools.find((entry) => entry.id === tool)
 
   function endDockDrag(event: PointerEvent<HTMLButtonElement>) {
     if (!dragging) return
@@ -83,6 +93,19 @@ export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onFavor
           </button>
         ))}
       </div>
+      <details className="tool-settings shapes-menu">
+        <summary title="Escolher uma forma" aria-label="Formas">{shape?.label ?? 'Formas'}</summary>
+        <div className="tool-settings-body shape-choices">
+          {shapeTools.map(({ id, label, key, icon }) => <button key={id} type="button" aria-pressed={tool === id}
+            aria-keyshortcuts={key} title={`${label} (${key})`} onClick={(event) => {
+              onTool(id)
+              const menu = event.currentTarget.closest('details')
+              if (menu) menu.open = false
+            }}>
+            <span aria-hidden="true" data-ui-icon>{icon}</span>{label}<small>{key}</small>
+          </button>)}
+        </div>
+      </details>
       <div className="favorites" role="group" aria-label="Favoritos de cor e espessura">
         {favorites.map(({ color, size }, index) => (
           <button key={index} type="button" aria-label={`Favorito ${index + 1}, ${size} px`}

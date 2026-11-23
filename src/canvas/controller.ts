@@ -1,21 +1,30 @@
-import { panBy, screenToWorld, zoomAt } from '../core/camera'
+import { panBy, screenToWorld, worldToScreen, zoomAt } from '../core/camera'
 import { objectBounds, type Scene } from '../core/scene'
 import { StrokeInput } from '../core/stroke'
-import type { Affine, BoardChange, BoardObject, Bounds, Camera, FrameObject, Point, Stroke, StrokePoint, Viewport } from '../core/types'
+import type { Affine, BoardChange, BoardObject, Bounds, Camera, FrameObject, Point, ShapeKind,
+  ShapeObject, Stroke, StrokePoint, TextObject, Viewport } from '../core/types'
 import { boundsFromPoints, expandBounds, fittingFrame, hitInk, hitObject, multiplyTransforms, rectanglePoints,
   regionIntersects, selectionHandles } from './geometry'
 import { CanvasRenderer, type BackgroundFrameMetrics, type BoardBackground, type CanvasOverlay, type GetPageRaster } from './renderer'
 
 import { shouldStartPan } from './pan'
+import { appendVertex, dragShapePoints, isDrawableShape, snapAngle, type DragShape } from './shapes'
 
 export type { BackgroundFrameMetrics } from './renderer'
 export type { BoardBackground, GetPageRaster } from './renderer'
 
-export type BoardTool = 'pen' | 'hand' | 'highlight' | 'erase' | 'select' | 'lasso' | 'frame'
+export type BoardTool = 'pen' | 'hand' | 'highlight' | 'erase' | 'select' | 'lasso' | 'frame' | 'text' | ShapeKind
 
 export interface BrushStyle {
   color: string
   size: number
+}
+
+export interface TextEditRequest {
+  point: Point
+  screen: Point
+  object?: TextObject
+  parentId?: string
 }
 
 export interface InkFrameMetrics {
@@ -36,6 +45,7 @@ export interface BoardControllerOptions {
   onChanges?: (changes: readonly BoardChange[]) => void
   onSelectionChange?: (objects: readonly BoardObject[]) => void
   getPageRaster?: GetPageRaster
+  onTextEdit?: (request: TextEditRequest) => void
 }
 
 interface InkSample {
@@ -89,7 +99,30 @@ interface TransformGesture {
   preview?: readonly BoardObject[]
 }
 
-type Gesture = InkGesture | PanGesture | EraseGesture | RegionGesture | TransformGesture
+interface ShapeGesture {
+  kind: 'shape'
+  pointerId: number
+  shape: DragShape
+  start: Point
+  end: Point
+  constrained: boolean
+  style: BrushStyle
+  parentId: string | undefined
+}
+
+type ClickGesture = ({ kind: 'textClick' } | { kind: 'polygonClick' }) & {
+  pointerId: number
+  start: Point
+}
+
+interface PolygonDraft {
+  points: readonly Point[]
+  hover: Point | undefined
+  style: BrushStyle
+  parentId: string | undefined
+}
+
+type Gesture = InkGesture | PanGesture | EraseGesture | RegionGesture | TransformGesture | ShapeGesture | ClickGesture
 
 const eraserPixels = 9
 const translation = (dx: number, dy: number): Affine => [1, 0, 0, 1, dx, dy]
@@ -112,7 +145,7 @@ function combinedBounds(objects: readonly BoardObject[]): Bounds | undefined {
   }))
 }
 
-function eventPoint(event: PointerEvent | WheelEvent, rect: DOMRect): Point {
+function eventPoint(event: MouseEvent, rect: DOMRect): Point {
   return { x: event.clientX - rect.left, y: event.clientY - rect.top }
 }
 
@@ -138,6 +171,7 @@ export class BoardController {
   private spaceHeld = false
   private eraserHeld = false
   private gesture: Gesture | undefined
+  private polygon: PolygonDraft | undefined
   private eraserPoint: Point | undefined
   private lastPointer: Point | undefined
   private background: BoardBackground = 'white'
@@ -162,6 +196,7 @@ export class BoardController {
     liveCanvas.addEventListener('pointercancel', this.pointerCancel, { signal })
     liveCanvas.addEventListener('lostpointercapture', this.pointerCancel, { signal })
     liveCanvas.addEventListener('pointerleave', this.pointerLeave, { signal })
+    liveCanvas.addEventListener('dblclick', this.doubleClick, { signal })
     liveCanvas.addEventListener('mousedown', this.preventMiddleClick, { signal })
     liveCanvas.addEventListener('auxclick', this.preventMiddleClick, { signal })
     liveCanvas.addEventListener('contextmenu', (event) => event.preventDefault(), { signal })
@@ -180,6 +215,7 @@ export class BoardController {
   setTool(tool: BoardTool): void {
     if (this.tool === tool) return
     this.tool = tool
+    this.polygon = undefined
     if (tool !== 'select' && tool !== 'lasso') this.clearSelection()
     this.refreshLive()
     this.updateCursor()
@@ -193,6 +229,10 @@ export class BoardController {
 
   setStyle(style: BrushStyle): void {
     this.style = { ...style }
+  }
+
+  getStyle(): BrushStyle {
+    return { ...this.style }
   }
 
   setStabilizer(value: number): void {
@@ -365,10 +405,9 @@ export class BoardController {
         (this.options.scene.get(originalParent)?.type === 'pdfPage' ? originalParent : undefined))
       const parent = parentId ? { parentId } : {}
 
-      if (object.type === 'stroke') return { ...withoutParent(object) as Stroke, ...base, ...parent }
       if (object.type === 'frame') return { ...withoutParent(object) as FrameObject, ...base, ...parent,
         props: { ...object.props, order: frameOrder++ } }
-      return { ...object, ...base }
+      return { ...withoutParent(object), ...base, ...parent }
     })
     this.applyChanges(copies.map((after) => ({ after })))
     const copiedIds = new Set(copies.map((object) => object.id))
@@ -403,7 +442,8 @@ export class BoardController {
       earliestSample = Math.min(earliestSample, this.consumeSamples(gesture))
       const drawn = gesture.input.finish(crypto.randomUUID(), this.options.scene.nextZIndex())
       if (drawn) {
-        const stroke = gesture.parentId ? { ...drawn, parentId: gesture.parentId } : drawn
+        const parentId = this.availablePdf(gesture.parentId)
+        const stroke = parentId ? { ...drawn, parentId } : drawn
         if (this.options.onStrokeCommit || !this.options.onChanges) {
           this.options.scene.add(stroke)
           this.options.onStrokeCommit?.(stroke)
@@ -457,6 +497,14 @@ export class BoardController {
     const bounds = combinedBounds(selected)
     const overlay: CanvasOverlay = {}
     if (activePreview) overlay.previewObjects = activePreview
+    if (gesture?.kind === 'shape') {
+      const preview = this.dragShape(gesture, 'shape-preview')
+      if (preview) overlay.previewObjects = [preview]
+    }
+    if (this.polygon && this.activeTool() === 'polygon') {
+      const { points, hover, style, parentId } = this.polygon
+      overlay.polygon = { points, ...style, ...(hover ? { hover } : {}), ...(parentId ? { parentId } : {}) }
+    }
     if (bounds) overlay.selection = { bounds, canRotate: !selected.some((object) => object.type === 'frame') }
     if (gesture?.kind === 'region') overlay.region = this.regionFor(gesture)
     if ((gesture?.kind === 'erase' || this.activeTool() === 'erase') && this.eraserPoint) {
@@ -519,6 +567,13 @@ export class BoardController {
       this.eraseAlong(gesture, world)
     } else if (tool === 'select' || tool === 'lasso' || tool === 'frame') {
       this.beginSelection(tool, event.pointerId, world, event.shiftKey)
+    } else if (tool === 'text' || tool === 'polygon') {
+      this.gesture = { kind: tool === 'text' ? 'textClick' : 'polygonClick', pointerId: event.pointerId, start: world }
+    } else if (tool === 'line' || tool === 'arrow' || tool === 'rectangle' || tool === 'ellipse') {
+      this.gesture = { kind: 'shape', shape: tool, pointerId: event.pointerId, start: world, end: world,
+        constrained: event.shiftKey, style: { color: this.style.color, size: this.style.size / this.camera.zoom },
+        parentId: this.pdfAt(world) }
+      this.refreshLive()
     } else {
       const highlighting = tool === 'highlight'
       const input = new StrokeInput({
@@ -540,12 +595,18 @@ export class BoardController {
   private pointerMove = (event: PointerEvent): void => {
     this.lastPointer = { x: event.clientX, y: event.clientY }
     const hoverEraser = !this.gesture && this.activeTool() === 'erase' && event.pointerType !== 'touch'
-    if (this.gesture?.pointerId !== event.pointerId && !this.touches.has(event.pointerId) && !hoverEraser) return
+    const hoverPolygon = !this.gesture && this.activeTool() === 'polygon' ? this.polygon : undefined
+    if (this.gesture?.pointerId !== event.pointerId && !this.touches.has(event.pointerId) && !hoverEraser && !hoverPolygon) return
     const rect = this.options.liveCanvas.getBoundingClientRect()
     const point = eventPoint(event, rect)
     const world = screenToWorld(point, this.camera, this.renderer.viewport)
     if (hoverEraser) {
       this.eraserPoint = world
+      this.refreshLive()
+    }
+    if (hoverPolygon) {
+      const last = hoverPolygon.points.at(-1)!
+      hoverPolygon.hover = event.shiftKey ? snapAngle(last, world) : world
       this.refreshLive()
     }
 
@@ -571,7 +632,11 @@ export class BoardController {
       for (const sample of coalesced?.length ? coalesced : [event]) {
         this.enqueueSample(this.gesture, sample, rect)
       }
-    } else {
+    } else if (this.gesture.kind === 'shape') {
+      this.gesture.end = world
+      this.gesture.constrained = event.shiftKey
+      this.refreshLive()
+    } else if (this.gesture.kind !== 'textClick' && this.gesture.kind !== 'polygonClick') {
       this.updateEdit(this.gesture, world, event.shiftKey)
     }
   }
@@ -606,14 +671,26 @@ export class BoardController {
     this.touches.delete(event.pointerId)
     if (this.gesture?.pointerId !== event.pointerId) return
 
+    const gesture = this.gesture
     const rect = this.options.liveCanvas.getBoundingClientRect()
-    if (this.gesture.kind === 'ink') {
-      this.enqueueSample(this.gesture, event, rect)
-      this.completedGestures.push(this.gesture)
-    } else if (this.gesture.kind !== 'pan') {
-      const world = screenToWorld(eventPoint(event, rect), this.camera, this.renderer.viewport)
-      this.updateEdit(this.gesture, world, event.shiftKey)
-      this.commitEdit(this.gesture)
+    const screen = eventPoint(event, rect)
+    const world = screenToWorld(screen, this.camera, this.renderer.viewport)
+    if (gesture.kind === 'ink') {
+      this.enqueueSample(gesture, event, rect)
+      this.completedGestures.push(gesture)
+    } else if (gesture.kind === 'shape') {
+      gesture.end = world
+      gesture.constrained = event.shiftKey
+      const shape = this.dragShape(gesture, crypto.randomUUID())
+      if (shape) this.applyChanges([{ after: shape }])
+    } else if (gesture.kind === 'polygonClick' || gesture.kind === 'textClick') {
+      if (distance(world, gesture.start) <= 6 / this.camera.zoom) {
+        if (gesture.kind === 'polygonClick') this.addPolygonPoint(world, event.shiftKey)
+        else this.openText(world, screen, false)
+      }
+    } else if (gesture.kind !== 'pan') {
+      this.updateEdit(gesture, world, event.shiftKey)
+      this.commitEdit(gesture)
     }
     this.cancelGesture()
   }
@@ -648,6 +725,22 @@ export class BoardController {
       this.eraserPoint = undefined
       this.refreshLive()
     }
+    if (this.polygon?.hover) {
+      this.polygon.hover = undefined
+      this.refreshLive()
+    }
+  }
+
+  private doubleClick = (event: MouseEvent): void => {
+    if (event.button !== 0) return
+    const tool = this.activeTool()
+    if (tool === 'polygon') {
+      this.finishPolygon()
+    } else if (tool === 'select' || tool === 'lasso') {
+      const rect = this.options.liveCanvas.getBoundingClientRect()
+      const screen = eventPoint(event, rect)
+      this.openText(screenToWorld(screen, this.camera, this.renderer.viewport), screen, true)
+    }
   }
 
   private wheel = (event: WheelEvent): void => {
@@ -671,7 +764,10 @@ export class BoardController {
 
     if (event.code === 'Space') this.spaceHeld = true
     else if (event.code === 'KeyX') this.eraserHeld = true
-    else if (event.code === 'Escape' && (this.gesture || this.selection.size)) {
+    else if (event.key === 'Shift' && this.gesture?.kind === 'shape') this.gesture.constrained = true
+    else if (event.key === 'Enter' && this.activeTool() === 'polygon' && this.polygon) this.finishPolygon()
+    else if (event.code === 'Escape' && (this.gesture || this.selection.size || this.polygon)) {
+      this.polygon = undefined
       this.cancelGesture()
       this.clearSelection()
     } else return
@@ -682,6 +778,10 @@ export class BoardController {
   }
 
   private keyUp = (event: KeyboardEvent): void => {
+    if (event.key === 'Shift' && this.gesture?.kind === 'shape') {
+      this.gesture.constrained = false
+      this.refreshLive()
+    }
     if (event.code === 'Space') {
       this.spaceHeld = false
       this.updateCursor()
@@ -712,11 +812,78 @@ export class BoardController {
 
   private updateCursor(): void {
     this.options.liveCanvas.style.cursor = this.gesture?.kind === 'pan' ? 'grabbing' :
-      (this.activeTool() === 'hand' || this.spaceHeld) && this.gesture?.kind !== 'ink' ? 'grab' : 'crosshair'
+      (this.activeTool() === 'hand' || this.spaceHeld) && this.gesture?.kind !== 'ink' ? 'grab' :
+        this.activeTool() === 'text' ? 'text' : 'crosshair'
   }
 
   private activeTool(): BoardTool {
     return this.eraserHeld ? 'erase' : this.tool
+  }
+
+  private dragShape(gesture: ShapeGesture, id: string): ShapeObject | undefined {
+    const points = dragShapePoints(gesture.shape, gesture.start, gesture.end, gesture.constrained)
+    if (!isDrawableShape(gesture.shape, points, 1.5 / this.camera.zoom)) return undefined
+    return this.createShape(id, gesture.shape, points, gesture.style, gesture.parentId)
+  }
+
+  private createShape(id: string, kind: ShapeKind, points: readonly Point[], style: BrushStyle, parentId?: string): ShapeObject {
+    const origin = points[0]!
+    const attached = this.availablePdf(parentId)
+    return {
+      id, type: 'shape', locked: false, zIndex: this.options.scene.nextZIndex(),
+      transform: translation(origin.x, origin.y),
+      props: { kind, ...style, points: points.map(({ x, y }) => ({ x: x - origin.x, y: y - origin.y })) },
+      ...(attached ? { parentId: attached } : {}),
+    }
+  }
+
+  private addPolygonPoint(point: Point, constrained: boolean): void {
+    if (!this.polygon) {
+      this.polygon = { points: [point], hover: undefined,
+        style: { color: this.style.color, size: this.style.size / this.camera.zoom }, parentId: this.pdfAt(point) }
+      this.refreshLive()
+      return
+    }
+
+    const { points } = this.polygon
+    if (points.length >= 3 && distance(points[0]!, point) <= 5 / this.camera.zoom) {
+      this.finishPolygon()
+      return
+    }
+    const last = points.at(-1)!
+    this.polygon.points = appendVertex(points, constrained ? snapAngle(last, point) : point, 4 / this.camera.zoom)
+    this.polygon.hover = undefined
+    this.refreshLive()
+  }
+
+  private finishPolygon(): void {
+    const polygon = this.polygon
+    if (!polygon || polygon.points.length < 3) return
+
+    const object = this.createShape(crypto.randomUUID(), 'polygon', polygon.points, polygon.style, polygon.parentId)
+    this.polygon = undefined
+    this.applyChanges([{ after: object }])
+    this.refreshLive()
+  }
+
+  private openText(point: Point, screen: Point, existingOnly: boolean): void {
+    const notify = this.options.onTextEdit
+    if (!notify) return
+
+    const candidates = this.options.scene.search(boundsFromPoints([point]))
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const candidate = candidates[i]!
+      if (candidate.type === 'text' && !candidate.locked && hitObject(candidate, point, 0)) {
+        const origin = { x: candidate.transform[4], y: candidate.transform[5] }
+        notify({ point: origin, screen: worldToScreen(origin, this.camera, this.renderer.viewport), object: candidate })
+        return
+      }
+      if (candidate.type === 'pdfPage' && hitObject(candidate, point, 0)) break
+    }
+    if (!existingOnly) {
+      const parentId = this.pdfAt(point)
+      notify({ point, screen, ...(parentId ? { parentId } : {}) })
+    }
   }
 
   private pdfAt(point: Point): string | undefined {
@@ -726,6 +893,10 @@ export class BoardController {
       if (candidate.type === 'pdfPage' && hitObject(candidate, point, 0)) return candidate.id
     }
     return undefined
+  }
+
+  private availablePdf(id: string | undefined): string | undefined {
+    return id && this.options.scene.get(id)?.type === 'pdfPage' ? id : undefined
   }
 
   private beginSelection(tool: 'select' | 'lasso' | 'frame', pointerId: number, start: Point, extend: boolean): void {

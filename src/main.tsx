@@ -5,7 +5,7 @@ import { BoardController } from './canvas/controller'
 import type { BoardTool, BrushStyle } from './canvas/controller'
 import { screenToWorld } from './core/camera'
 import { objectBounds, Scene } from './core/scene'
-import type { BoardChange, BoardObject, FrameObject, PageObject, Point } from './core/types'
+import type { BoardChange, BoardObject, FrameObject, PageObject, Point, TextObject } from './core/types'
 import { BoardDocument } from './documents/store'
 import { decodeFromFile, openBoardFile, saveBoardFile } from './documents/files'
 import { registerPwa } from './pwa/register'
@@ -18,7 +18,9 @@ import { PdfPagePreviews } from './pdf/preview'
 import { exportPdf, exportPng } from './pdf/export'
 import { ImagePreviews, importImage } from './ui/assets'
 import { fitCamera, framesForPages } from './ui/frames'
-import { backgrounds, initialFavorites, tools, Tools } from './ui/tools'
+import { backgrounds, initialFavorites, shapeTools, tools, Tools } from './ui/tools'
+import { TextEditor } from './ui/text-editor'
+import { textBoxDimensions } from './ui/text'
 import type { Background, Dock } from './ui/tools'
 import './styles.css'
 
@@ -30,6 +32,15 @@ interface BoardSettings {
   background: Background
   favorite: number
   favorites: readonly BrushStyle[]
+}
+
+interface TextDraft {
+  position: Point
+  origin: Point
+  fontSize: number
+  color: string
+  object?: TextObject
+  parentId?: string
 }
 
 const useSettings = create<BoardSettings>(() => ({
@@ -83,10 +94,12 @@ function Board() {
   const frameName = useRef('')
   const createPdfFrames = useRef(true)
   const resetPreviews = useRef<(() => void) | null>(null)
+  const textDraftRef = useRef<TextDraft | null>(null)
   const [selection, setSelection] = useState<readonly BoardObject[]>([])
   const [frames, setFrames] = useState<readonly FrameObject[]>([])
   const [pdfPages, setPdfPages] = useState<readonly PageObject[]>([])
   const [activeFrame, setActiveFrame] = useState<string | null>(null)
+  const [textDraft, setTextDraft] = useState<TextDraft | null>(null)
   const [saveStatus, setSaveStatus] = useState<SaveStatus | 'recovering'>('recovering')
   const [isReady, setIsReady] = useState(false)
   const [message, setMessage] = useState('')
@@ -95,6 +108,61 @@ function Board() {
   const [pwaState, setPwaState] = useState<PwaState>({ offline: 'loading', canInstall: false, updateAvailable: false })
   const [zoom, setZoom] = useState(1)
   const { tool, stabilizer, zoomRequiresCtrl, dock, background, favorite, favorites } = useSettings()
+
+  function openTextEditor(request: { point: Point; screen: Point; object?: TextObject; parentId?: string }) {
+    const board = controller.current
+    if (!board || !documentRef.current || fileOperation.current || textDraftRef.current) return
+    const { point, screen, object, parentId } = request
+    const viewport = board.getViewport()
+    const settings = useSettings.getState()
+    const value: TextDraft = {
+      position: { x: Math.max(8, Math.min(screen.x, viewport.width - 308)), y: Math.max(8, Math.min(screen.y, viewport.height - 176)) },
+      origin: point,
+      fontSize: object?.props.fontSize ?? 24 / board.getCamera().zoom,
+      color: object?.props.color ?? settings.favorites[settings.favorite].color,
+      object, parentId,
+    }
+    textDraftRef.current = value
+    setTextDraft(value)
+  }
+
+  function closeTextEditor() {
+    textDraftRef.current = null
+    setTextDraft(null)
+  }
+
+  function commitText(text: string) {
+    const draft = textDraftRef.current
+    const scene = sceneRef.current
+    if (!draft || !scene) return
+    closeTextEditor()
+    const before = draft.object
+    if (before && scene.get(before.id) !== before) return
+    if (before?.props.text === text) return
+    if (!text.trim()) {
+      if (before) applyChanges([{ before }])
+      return
+    }
+
+    const context = confirmedCanvas.current?.getContext('2d')
+    const parentId = draft.parentId && scene.get(draft.parentId)?.type === 'pdfPage' ? draft.parentId : undefined
+    let dimensions
+    if (context) {
+      context.save()
+      context.font = `${draft.fontSize}px Arial, sans-serif`
+      dimensions = textBoxDimensions(text, draft.fontSize, (line) => context.measureText(line).width)
+      context.restore()
+    } else {
+      dimensions = textBoxDimensions(text, draft.fontSize, (line) => line.length * draft.fontSize * 0.6)
+    }
+    const after: TextObject = {
+      ...(before ?? { id: crypto.randomUUID(), type: 'text', locked: false, zIndex: scene.nextZIndex(),
+        transform: [1, 0, 0, 1, draft.origin.x, draft.origin.y] as const,
+        ...(parentId ? { parentId } : {}) }),
+      props: { text, color: draft.color, fontSize: draft.fontSize, ...dimensions },
+    }
+    applyChanges([{ before, after }])
+  }
 
   function setFrameActive(id: string | null) {
     frameId.current = id
@@ -300,9 +368,11 @@ function Board() {
         download(await exportPng(portable, { frameId: id, background }), 'quadro.png')
         setMessage('PNG do quadro exportado.')
       } else {
-        const { bytes, fallbackPages } = await exportPdf(portable, { scope: mode, background })
+        const { bytes, fallbackPages, fallbackTexts } = await exportPdf(portable, { scope: mode, background })
         download(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }), 'lousa.pdf')
-        setMessage(fallbackPages ? `PDF exportado. ${fallbackPages} páginas de origem usaram imagem em alta resolução.` : 'PDF exportado.')
+        const notes = [fallbackPages ? `Páginas em imagem de alta resolução: ${fallbackPages}.` : '',
+          fallbackTexts ? `Objetos de texto em imagem por caracteres incompatíveis: ${fallbackTexts}.` : ''].filter(Boolean)
+        setMessage(['PDF exportado.', ...notes].join(' '))
       }
     }, 'Não foi possível exportar. Confira o conteúdo e os quadros da lousa.')
   }
@@ -334,6 +404,7 @@ function Board() {
       onBackgroundFrame: (metrics) => benchmark?.recordBackground(metrics),
       onInkFrame: (metrics) => benchmark?.recordInk(metrics),
       onSelectionChange: setSelection,
+      onTextEdit: openTextEditor,
       getPageRaster: (page) => {
         const asset = documentRef.current?.asset(page.props.assetId)
         if (!asset) return undefined
@@ -423,7 +494,7 @@ function Board() {
       }
 
       const key = event.key.toLowerCase()
-      const toolShortcut = tools.find((option) => option.key.toLowerCase() === key)
+      const toolShortcut = [...tools, ...shapeTools].find((option) => option.key.toLowerCase() === key)
       if (toolShortcut) {
         useSettings.setState({ tool: toolShortcut.id })
         event.preventDefault()
@@ -641,6 +712,8 @@ function Board() {
           <canvas ref={confirmedCanvas} aria-hidden="true" />
           <canvas ref={liveCanvas} className="live-surface" data-tool={tool}
             aria-label="Lousa interativa" tabIndex={0} />
+          {textDraft && <TextEditor initialText={textDraft.object?.props.text ?? ''} position={textDraft.position}
+            onCommit={commitText} onCancel={() => { closeTextEditor(); liveCanvas.current?.focus() }} />}
         </section>
       </div>
 

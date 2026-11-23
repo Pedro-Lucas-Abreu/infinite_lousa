@@ -6,7 +6,7 @@ import {
   PDFRawStream, rgb, StandardFonts,
 } from "@cantoo/pdf-lib";
 import { createStroke } from "../core/stroke";
-import type { FrameObject, PageObject } from "../core/types";
+import type { FrameObject, PageObject, ShapeObject, TextObject } from "../core/types";
 import type { BoardAsset, PortableBoard } from "../documents/archive";
 import { exportPdf } from "./export";
 import { sourceGeometry } from "./source";
@@ -136,5 +136,38 @@ test("keeps ink as a filled path in an export with no image or PDF background", 
   const result = await PDFDocument.load(bytes);
   assert.match(pageStreams(result, 0), / m\s+[\s\S]+ l\s+[\s\S]*h\s+f/);
   assert.ok(result.context.enumerateIndirectObjects().every(([, object]) =>
+    !(object instanceof PDFRawStream) || object.dict.get(PDFName.of("Subtype")) !== PDFName.of("Image")));
+});
+
+test("exports all five shapes as paths and accented multiline text as PDF text", async () => {
+  const frame: FrameObject = {
+    id: "frame", type: "frame", transform: unchanged, locked: false, zIndex: 0,
+    props: { width: 640, height: 480, name: "Lousa", order: 0 },
+  };
+  const points = [{ x: 12, y: 20 }, { x: 55, y: 45 }];
+  const shapes = (["line", "arrow", "rectangle", "ellipse", "polygon"] as const).map((kind, index): ShapeObject => ({
+    id: kind, type: "shape", transform: [1, 0, 0, 1, 80 * index, 30], locked: false, zIndex: index + 1,
+    props: {
+      kind, color: "#193050", size: 2,
+      points: kind === "polygon" ? [...points, { x: 15, y: 50 }] : points,
+    },
+  }));
+  const text: TextObject = {
+    id: "text", type: "text", transform: [1, 0, 0, 1, 40, 125], locked: false, zIndex: 6,
+    props: { text: "Equação\nFunção", width: 180, height: 64, fontSize: 20, color: "#193050" },
+  };
+  const result = await exportPdf({ scene: { version: 1, objects: [frame, ...shapes, text] }, assets: [] }, { scope: "frames" });
+  assert.equal(result.fallbackTexts, 0);
+  const reopened = await PDFDocument.load(result.bytes);
+  const content = pageStreams(reopened, 0);
+  assert.match(content, /12 20 m\s+55 45 l\s+S/);
+  assert.match(content, /12 20 m\s+55 45 l\s+[\d.]+ [\d.]+ m\s+55 45 l\s+[\d.]+ [\d.]+ l\s+S/);
+  assert.match(content, /12 20 43 25 re\s+S/);
+  assert.equal(content.match(/^-?[\d. -]+ c$/gm)?.length, 4, "the ellipse uses Bézier curves");
+  assert.match(content, /12 20 m\s+55 45 l\s+15 50 l\s+h\s+S/);
+  assert.match(content, /1 0 0 -1 0 0 cm\s+q\s+BT/);
+  assert.match(content, /1 0 0 1 0 -20 Tm\s+<45717561E7E36F> Tj/i);
+  assert.match(content, /1 0 0 1 0 -45 Tm\s+<46756EE7E36F> Tj/i);
+  assert.ok(reopened.context.enumerateIndirectObjects().every(([, object]) =>
     !(object instanceof PDFRawStream) || object.dict.get(PDFName.of("Subtype")) !== PDFName.of("Image")));
 });

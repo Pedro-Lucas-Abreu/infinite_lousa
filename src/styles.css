@@ -157,6 +157,21 @@ button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-vi
 }
 .tool-settings-body label { display: flex; font-size: .82rem; gap: 8px; align-items: center; justify-content: space-between; }
 .tool-settings-body input { width: 56px; }
+.shape-choices button { flex-direction: row; justify-content: flex-start; gap: 8px; }
+.shape-choices small { margin-left: auto; color: var(--muted); }
+.board-text-editor {
+  position: absolute;
+  z-index: 1;
+  width: min(300px, calc(100% - 16px));
+  padding: 7px 9px;
+  color: #192038;
+  background: #fff;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  box-shadow: 0 3px 14px #19203826;
+  font: 18px/1.25 Arial, sans-serif;
+  resize: vertical;
+}
 .dock-bottom .tool-settings-body { bottom: 100%; top: auto; }
 .dock-left .tool-settings-body { left: 100%; top: 0; }
 .dock-right .tool-settings-body { right: 100%; top: 0; }

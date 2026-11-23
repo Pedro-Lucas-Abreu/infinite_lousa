@@ -2,6 +2,7 @@ import { viewportBounds, worldToScreen } from '../core/camera'
 import type { Scene } from '../core/scene'
 import { strokeOutline } from '../core/stroke'
 import type { Affine, BoardObject, Bounds, Camera, PageObject, Point, Stroke, Viewport } from '../core/types'
+import { drawShape, drawTextObject } from './drawings'
 import { rectanglePoints, selectionHandles } from './geometry'
 
 export type BoardBackground = 'white' | 'dark' | 'dotted' | 'grid' | 'millimeter'
@@ -12,6 +13,7 @@ export interface CanvasOverlay {
   region?: readonly Point[]
   previewObjects?: readonly BoardObject[]
   eraser?: { point: Point; radius: number }
+  polygon?: { points: readonly Point[]; hover?: Point; color: string; size: number; parentId?: string }
 }
 
 export interface BackgroundFrameMetrics {
@@ -127,11 +129,15 @@ export class CanvasRenderer {
   private paint(context: CanvasRenderingContext2D, stroke: Stroke, path: Path2D, camera: Camera): void {
     this.setObjectTransform(context, stroke.transform, camera)
     const { color, opacity = 1 } = stroke.props.brush
-    const defaultInk = color === '#192038' || color === '#1a2433'
-    context.fillStyle = this.darkPaper && !stroke.parentId && defaultInk ? '#ecf2ff' : color
+    context.fillStyle = this.boardColor(color, stroke.parentId)
     if (opacity !== 1) context.globalAlpha = opacity
     context.fill(path)
     if (opacity !== 1) context.globalAlpha = 1
+  }
+
+  private boardColor(color: string, parentId?: string): string {
+    const defaultInk = color === '#192038' || color === '#1a2433'
+    return this.darkPaper && !parentId && defaultInk ? '#ecf2ff' : color
   }
 
   private setObjectTransform(context: CanvasRenderingContext2D, [a, b, c, d, e, f]: Affine, camera: Camera): void {
@@ -152,6 +158,14 @@ export class CanvasRenderer {
     }
 
     this.setObjectTransform(context, object.transform, camera)
+    if (object.type === 'shape') {
+      drawShape(context, object, this.boardColor(object.props.color, object.parentId))
+      return
+    }
+    if (object.type === 'text') {
+      drawTextObject(context, object, this.boardColor(object.props.color, object.parentId))
+      return
+    }
     const [a, b, c, d] = object.transform
     const effectiveScale = camera.zoom * Math.max(Math.hypot(a * this.scaleX, b * this.scaleY), Math.hypot(c * this.scaleX, d * this.scaleY))
     const { width, height } = object.props
@@ -240,6 +254,37 @@ export class CanvasRenderer {
       context.arc(x, y, overlay.eraser.radius * camera.zoom, 0, 2 * Math.PI)
       context.stroke()
     }
+    if (overlay.polygon) this.drawPolygonDraft(overlay.polygon, camera)
+  }
+
+  private drawPolygonDraft(polygon: NonNullable<CanvasOverlay['polygon']>, camera: Camera): void {
+    const context = this.liveContext
+    const color = this.boardColor(polygon.color, polygon.parentId)
+    const points = polygon.points.map((point) => worldToScreen(point, camera, this.viewport))
+    const first = points[0]!
+    context.fillStyle = color
+    context.strokeStyle = color
+    context.lineWidth = polygon.size * camera.zoom
+    context.lineCap = 'round'
+    context.lineJoin = 'round'
+    context.beginPath()
+    context.moveTo(first.x, first.y)
+    for (const point of points.slice(1)) context.lineTo(point.x, point.y)
+    context.stroke()
+
+    if (polygon.hover) {
+      const last = points.at(-1)!
+      const hover = worldToScreen(polygon.hover, camera, this.viewport)
+      context.beginPath()
+      context.moveTo(last.x, last.y)
+      context.lineTo(hover.x, hover.y)
+      context.setLineDash([5, 4])
+      context.stroke()
+      context.setLineDash([])
+    }
+    context.beginPath()
+    context.arc(first.x, first.y, 3, 0, 2 * Math.PI)
+    context.fill()
   }
 
   private drawRegion(points: readonly Point[], camera: Camera, dotted: boolean): void {
