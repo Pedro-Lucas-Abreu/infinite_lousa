@@ -63,6 +63,10 @@ function download(blob: Blob, name: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 30_000)
 }
 
+function isTextEntry(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (target.isContentEditable || Boolean(target.closest('input, textarea, [data-board-editor]')))
+}
+
 function Board() {
   const confirmedCanvas = useRef<HTMLCanvasElement>(null)
   const liveCanvas = useRef<HTMLCanvasElement>(null)
@@ -381,11 +385,11 @@ function Board() {
     function handleShortcut(event: KeyboardEvent) {
       const target = event.target
       if (event.defaultPrevented || event.repeat && event.key.toLowerCase() === 'n' ||
-        (target instanceof HTMLElement &&
-          (target.matches('input, textarea, select') || target.isContentEditable))) return
+        isTextEntry(target) || target instanceof HTMLElement && target.matches('select')) return
 
       if (event.ctrlKey || event.metaKey) {
         switch (event.key.toLowerCase()) {
+          case 'a': useSettings.setState({ tool: 'select' }); board.selectAll(); break
           case 'z': changeHistory(event.shiftKey ? 'redo' : 'undo'); break
           case 'y': changeHistory('redo'); break
           case 's': saveFile(event.shiftKey); break
@@ -478,14 +482,24 @@ function Board() {
 
     function handlePaste(event: ClipboardEvent) {
       if (fileOperation.current || !documentRef.current) return
-      if (event.target instanceof HTMLElement && (event.target.matches('input, textarea') || event.target.isContentEditable)) return
+      if (isTextEntry(event.target)) return
       const files = Array.from(event.clipboardData?.files ?? [])
       if (files.length) { event.preventDefault(); importAssets(files); return }
       board.pasteSelection()
     }
 
+    function blockInterfaceSelection(event: Event) {
+      if (!isTextEntry(event.target)) event.preventDefault()
+    }
+
+    function blockInterfaceDrag(event: DragEvent) {
+      if (event.target instanceof Element && event.target.closest('img, svg, [data-ui-icon]') && !isTextEntry(event.target)) event.preventDefault()
+    }
+
     window.addEventListener('keydown', handleShortcut)
     window.addEventListener('paste', handlePaste)
+    document.addEventListener('selectstart', blockInterfaceSelection)
+    document.addEventListener('dragstart', blockInterfaceDrag)
     let unsubscribePwa: (() => void) | undefined
     if (isBenchmark) {
       setIsReady(true)
@@ -520,6 +534,8 @@ function Board() {
       document.removeEventListener('visibilitychange', flushOnHide)
       window.removeEventListener('keydown', handleShortcut)
       window.removeEventListener('paste', handlePaste)
+      document.removeEventListener('selectstart', blockInterfaceSelection)
+      document.removeEventListener('dragstart', blockInterfaceDrag)
       images.dispose()
       pdfs.dispose()
       resetPreviews.current = null

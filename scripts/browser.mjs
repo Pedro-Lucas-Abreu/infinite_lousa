@@ -181,12 +181,12 @@ async function smoke(page) {
   assert.ok(surface)
   const x = surface.x + surface.width / 2
   const y = surface.y + surface.height / 2
-  for (const gesture of ['middle', 'Space', 'Control', 'hand']) {
+  for (const gesture of ['right', 'Space', 'Control', 'hand']) {
     const before = await page.evaluate(() => window.whiteboardBenchmark.camera())
     if (gesture === 'hand') await page.evaluate(() => document.querySelector('[aria-keyshortcuts="M"]').click())
     if (gesture === 'Space') await key(page, ' ', 'Space', 32)
-    const button = gesture === 'middle' ? 'middle' : 'left'
-    const buttons = button === 'middle' ? 4 : 1
+    const button = gesture === 'right' ? 'right' : 'left'
+    const buttons = button === 'right' ? 2 : 1
     const modifiers = gesture === 'Control' ? 2 : 0
     await mouse(page, 'mousePressed', x, y, button, buttons, modifiers)
     await mouse(page, 'mouseMoved', x + 60, y + 22, 'none', buttons, modifiers)

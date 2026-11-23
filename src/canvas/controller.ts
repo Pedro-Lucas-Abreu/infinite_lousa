@@ -6,6 +6,8 @@ import { boundsFromPoints, expandBounds, fittingFrame, hitInk, hitObject, multip
   regionIntersects, selectionHandles } from './geometry'
 import { CanvasRenderer, type BackgroundFrameMetrics, type BoardBackground, type CanvasOverlay, type GetPageRaster } from './renderer'
 
+import { shouldStartPan } from './pan'
+
 export type { BackgroundFrameMetrics } from './renderer'
 export type { BoardBackground, GetPageRaster } from './renderer'
 
@@ -55,6 +57,7 @@ interface PanGesture {
   kind: 'pan'
   pointerId: number
   last: Point
+  button: number
 }
 
 interface EraseGesture {
@@ -159,10 +162,14 @@ export class BoardController {
     liveCanvas.addEventListener('pointercancel', this.pointerCancel, { signal })
     liveCanvas.addEventListener('lostpointercapture', this.pointerCancel, { signal })
     liveCanvas.addEventListener('pointerleave', this.pointerLeave, { signal })
+    liveCanvas.addEventListener('mousedown', this.preventMiddleClick, { signal })
+    liveCanvas.addEventListener('auxclick', this.preventMiddleClick, { signal })
+    liveCanvas.addEventListener('contextmenu', (event) => event.preventDefault(), { signal })
     liveCanvas.addEventListener('wheel', this.wheel, { passive: false, signal })
     window.addEventListener('keydown', this.keyDown, { signal })
     window.addEventListener('keyup', this.keyUp, { signal })
     window.addEventListener('blur', this.blur, { signal })
+    window.addEventListener('mouseup', this.endRightPan, { signal })
     window.addEventListener('resize', this.resize, { signal })
 
     this.resize()
@@ -220,6 +227,10 @@ export class BoardController {
 
   clearSelection(): void {
     if (this.selection.size) this.selectObjects([])
+  }
+
+  selectAll(): void {
+    this.selectObjects(this.options.scene.all().filter(({ locked }) => !locked))
   }
 
   deleteSelection(): void {
@@ -473,7 +484,12 @@ export class BoardController {
   }
 
   private pointerDown = (event: PointerEvent): void => {
-    if (event.button !== 0 && event.button !== 1) return
+    window.getSelection()?.removeAllRanges()
+    if (event.button === 1) {
+      event.preventDefault()
+      return
+    }
+    if (event.button !== 0 && event.button !== 2) return
     const isTouch = event.pointerType === 'touch'
     if (this.gesture && (!isTouch || !this.touches.has(this.gesture.pointerId))) return
 
@@ -495,8 +511,8 @@ export class BoardController {
 
     const tool = this.activeTool()
     const world = screenToWorld(point, this.camera, this.renderer.viewport)
-    if (event.button === 1 || event.ctrlKey || this.spaceHeld || tool === 'hand') {
-      this.gesture = { kind: 'pan', pointerId: event.pointerId, last: point }
+    if (shouldStartPan(event.button, event.ctrlKey, this.spaceHeld, tool === 'hand')) {
+      this.gesture = { kind: 'pan', pointerId: event.pointerId, last: point, button: event.button }
     } else if (tool === 'erase') {
       const gesture: EraseGesture = { kind: 'erase', pointerId: event.pointerId, last: world, affected: new Map() }
       this.gesture = gesture
@@ -543,6 +559,10 @@ export class BoardController {
 
     if (this.gesture?.pointerId !== event.pointerId) return
     if (this.gesture.kind === 'pan') {
+      if (this.gesture.button === 2 && (event.buttons & 2) === 0) {
+        this.endRightPan()
+        return
+      }
       const previous = this.gesture.last
       this.gesture.last = point
       this.setCamera(panBy(this.camera, point.x - previous.x, point.y - previous.y))
@@ -601,6 +621,16 @@ export class BoardController {
   private pointerCancel = (event: PointerEvent): void => {
     this.touches.delete(event.pointerId)
     if (this.gesture?.pointerId === event.pointerId) this.cancelGesture()
+  }
+
+  private preventMiddleClick = (event: MouseEvent): void => {
+    if (event.button === 1) event.preventDefault()
+  }
+
+  private endRightPan = (event?: MouseEvent): void => {
+    if ((event && event.button !== 2) || this.gesture?.kind !== 'pan' || this.gesture.button !== 2) return
+    this.releasePointers()
+    this.cancelGesture()
   }
 
   private cancelGesture(): void {

@@ -72,14 +72,14 @@ export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onFavor
             onDock(choices[(choices.indexOf(dock) + 1) % choices.length])
           }
         }}>
-        <span aria-hidden="true">⠿</span>
+        <span aria-hidden="true" data-ui-icon>⠿</span>
       </button>
       <div className="drawing-tool-list" role="group" aria-label="Ferramentas">
         {tools.map((option) => (
           <button key={option.id} type="button" title={`${option.label} (${option.key})`}
             aria-label={option.label} aria-keyshortcuts={option.key} aria-pressed={tool === option.id}
             onClick={() => onTool(option.id)}>
-            <span aria-hidden="true">{option.icon}</span><small>{option.label}</small>
+            <span aria-hidden="true" data-ui-icon>{option.icon}</span><small>{option.label}</small>
           </button>
         ))}
       </div>

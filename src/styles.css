@@ -12,6 +12,15 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; }
+body, #root, .toolbar, .drawing-tools, .file-menu, .file-actions, .tool-settings-body, .status-bar {
+  -webkit-user-select: none;
+  user-select: none;
+}
+input, textarea, [contenteditable]:not([contenteditable='false']), [data-board-editor] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+#root img, #root svg, #root [data-ui-icon] { -webkit-user-drag: none; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-visible {

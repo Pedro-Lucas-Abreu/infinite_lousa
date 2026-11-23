@@ -1,5 +1,10 @@
 # Mudanças
 
+## Correções após uso em aula
+
+- Arrastar ou dar duplo clique na barra e nos menus deixa a interface livre de seleção. Os campos de entrada continuam com seleção normal, e **Ctrl+A** seleciona os objetos da lousa fora deles.
+- O **botão direito arrasta a lousa** em qualquer ferramenta. O botão do meio fica inativo no canvas. **Ctrl**, **Espaço** e **Mão** continuam movendo a lousa.
+
 ## Etapa A — Lousa para aula
 
 - Escreva com **P**, marque com **H** e apague traços inteiros com **E** ou segurando **X**. **Ctrl+Z** desfaz um gesto de apagar de uma vez.

@@ -19,11 +19,11 @@ Abra a URL exibida no terminal no Chrome ou Edge. O Firefox é o navegador secun
 | Marcar / apagar | `H` para marca-texto, `E` para borracha, segurar `X` para apagar temporariamente |
 | Trocar cor e espessura | `1` a `6`. Edite o favorito atual em **Ajustes** |
 | Mover a barra | Arraste a alça até uma borda ou escolha a posição em **Ajustes** |
-| Selecionar | `V` retângulo, `B` laço, `Esc` para limpar |
+| Selecionar | `V` retângulo, `B` laço, `Ctrl+A` para todos os objetos destravados e `Esc` para limpar |
 | Transformar seleção | Arraste a seleção ou seus puxadores. Use `Alt` + setas para mover, `Alt` + `+` ou `−` para redimensionar e `R` / `Shift+R` para girar |
 | Copiar, recortar, colar, duplicar e excluir | `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Ctrl+D` e `Delete` |
 | Suavizar o traço | Controle Estabilizador de 0 a 100 |
-| Mover a lousa | Arrastar com botão do meio, Espaço ou Ctrl, ou selecionar Mão (`M`) |
+| Mover a lousa | O botão direito arrasta a lousa. Também funcionam Espaço ou Ctrl + arrastar e a ferramenta Mão (`M`) |
 | Dar zoom | Roda do mouse, `+` e `−` ou controles na barra |
 | Exigir Ctrl para zoom com a roda | Marcar “Exigir Ctrl para zoom” |
 | Voltar à origem e ao zoom de 100% | Tecla `0` ou clique no percentual |
