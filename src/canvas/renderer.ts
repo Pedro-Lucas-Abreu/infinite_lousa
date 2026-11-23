@@ -1,7 +1,18 @@
-import { viewportBounds } from '../core/camera'
+import { viewportBounds, worldToScreen } from '../core/camera'
 import type { Scene } from '../core/scene'
 import { strokeOutline } from '../core/stroke'
-import type { Camera, Point, Stroke, Viewport } from '../core/types'
+import type { Affine, BoardObject, Bounds, Camera, PageObject, Point, Stroke, Viewport } from '../core/types'
+import { rectanglePoints, selectionHandles } from './geometry'
+
+export type BoardBackground = 'white' | 'dark' | 'dotted' | 'grid' | 'millimeter'
+export type GetPageRaster = (page: PageObject, effectiveScale: number) => CanvasImageSource | undefined
+
+export interface CanvasOverlay {
+  selection?: { bounds: Bounds; canRotate: boolean }
+  region?: readonly Point[]
+  previewObjects?: readonly BoardObject[]
+  eraser?: { point: Point; radius: number }
+}
 
 export interface BackgroundFrameMetrics {
   renderMs: number
@@ -31,9 +42,11 @@ export class CanvasRenderer {
   private scaleX = 1
   private scaleY = 1
   private liveHasInk = false
+  private darkPaper = false
   viewport: Viewport = { width: 1, height: 1 }
 
-  constructor(confirmedCanvas: HTMLCanvasElement, liveCanvas: HTMLCanvasElement) {
+  constructor(confirmedCanvas: HTMLCanvasElement, liveCanvas: HTMLCanvasElement,
+    private readonly getPageRaster?: GetPageRaster) {
     const confirmedContext = confirmedCanvas.getContext('2d')
     const liveContext = liveCanvas.getContext('2d')
     if (!confirmedContext || !liveContext) throw new Error('Canvas 2D unavailable')
@@ -62,18 +75,28 @@ export class CanvasRenderer {
     return true
   }
 
-  drawBackground(scene: Scene, camera: Camera): BackgroundFrameMetrics {
+  drawBackground(scene: Scene, camera: Camera, background: BoardBackground = 'white',
+    hidden?: Pick<ReadonlySet<string>, 'has'>): BackgroundFrameMetrics {
     const start = performance.now()
     const visible = scene.search(viewportBounds(camera, this.viewport))
     let cacheMisses = 0
+    let visibleStrokes = 0
 
     this.clear(this.confirmedContext)
-    for (const stroke of visible) {
-      cacheMisses += Number(this.drawConfirmedStroke(stroke, camera))
+    this.darkPaper = background === 'dark'
+    this.drawPaper(background, camera)
+    for (const object of visible) {
+      if (hidden?.has(object.id)) continue
+      if (object.type === 'stroke') {
+        visibleStrokes++
+        cacheMisses += Number(this.drawConfirmedStroke(object, camera))
+      } else {
+        this.drawObject(this.confirmedContext, object, camera)
+      }
     }
 
     const timeStamp = performance.now()
-    return { renderMs: timeStamp - start, visibleStrokes: visible.length, cacheMisses, timeStamp }
+    return { renderMs: timeStamp - start, visibleStrokes, cacheMisses, timeStamp }
   }
 
   drawConfirmedStroke(stroke: Stroke, camera: Camera): boolean {
@@ -85,10 +108,15 @@ export class CanvasRenderer {
     return !cached
   }
 
-  drawLive(stroke: Stroke | undefined, camera: Camera): void {
+  drawLive(stroke: Stroke | undefined, camera: Camera, overlay?: CanvasOverlay): void {
     if (this.liveHasInk) this.clear(this.liveContext)
-    if (stroke) this.paint(this.liveContext, stroke, createPath(strokeOutline(stroke, false)), camera)
-    this.liveHasInk = Boolean(stroke)
+    const context = this.liveContext
+    if (stroke) this.paint(context, stroke, createPath(strokeOutline(stroke, false)), camera)
+    if (overlay) {
+      for (const object of overlay.previewObjects ?? []) this.drawObject(context, object, camera)
+      this.drawOverlay(overlay, camera)
+    }
+    this.liveHasInk = Boolean(stroke || overlay)
   }
 
   private clear(context: CanvasRenderingContext2D): void {
@@ -97,7 +125,16 @@ export class CanvasRenderer {
   }
 
   private paint(context: CanvasRenderingContext2D, stroke: Stroke, path: Path2D, camera: Camera): void {
-    const [a, b, c, d, e, f] = stroke.transform
+    this.setObjectTransform(context, stroke.transform, camera)
+    const { color, opacity = 1 } = stroke.props.brush
+    const defaultInk = color === '#192038' || color === '#1a2433'
+    context.fillStyle = this.darkPaper && !stroke.parentId && defaultInk ? '#ecf2ff' : color
+    if (opacity !== 1) context.globalAlpha = opacity
+    context.fill(path)
+    if (opacity !== 1) context.globalAlpha = 1
+  }
+
+  private setObjectTransform(context: CanvasRenderingContext2D, [a, b, c, d, e, f]: Affine, camera: Camera): void {
     const zoomX = camera.zoom * this.scaleX
     const zoomY = camera.zoom * this.scaleY
     context.setTransform(
@@ -105,7 +142,118 @@ export class CanvasRenderer {
       (e - camera.x) * zoomX + context.canvas.width / 2,
       (f - camera.y) * zoomY + context.canvas.height / 2,
     )
-    context.fillStyle = stroke.props.brush.color
-    context.fill(path)
+  }
+
+  private drawObject(context: CanvasRenderingContext2D, object: BoardObject, camera: Camera): void {
+    if (object.type === 'stroke') {
+      const path = this.paths.get(object) ?? createPath(strokeOutline(object))
+      this.paint(context, object, path, camera)
+      return
+    }
+
+    this.setObjectTransform(context, object.transform, camera)
+    const [a, b, c, d] = object.transform
+    const effectiveScale = camera.zoom * Math.max(Math.hypot(a * this.scaleX, b * this.scaleY), Math.hypot(c * this.scaleX, d * this.scaleY))
+    const { width, height } = object.props
+    if (object.type === 'frame') {
+      context.strokeStyle = '#7191da'
+      context.lineWidth = 1.5 / effectiveScale
+      context.setLineDash([7 / effectiveScale, 4 / effectiveScale])
+      context.strokeRect(0, 0, width, height)
+      context.setLineDash([])
+      return
+    }
+
+    const raster = this.getPageRaster?.(object, effectiveScale)
+    if (object.type === 'pdfPage' || !raster) {
+      context.fillStyle = raster ? '#ffffff' : '#eef1f7'
+      context.fillRect(0, 0, width, height)
+    }
+    if (raster) context.drawImage(raster, 0, 0, width, height)
+  }
+
+  private drawPaper(background: BoardBackground, camera: Camera): void {
+    if (background === 'white') return
+    const context = this.confirmedContext
+    if (background === 'dark') {
+      context.fillStyle = '#121826'
+      context.fillRect(0, 0, context.canvas.width, context.canvas.height)
+      return
+    }
+
+    const { width, height } = this.viewport
+    const unit = background === 'millimeter' ? 96 / 25.4 : 32
+    let step = unit * camera.zoom
+    if (!Number.isFinite(step) || step <= 0) return
+    while (step < 8) step *= 5
+    while (step > 120) step /= 5
+    const worldStep = step / camera.zoom
+    const phase = (coordinate: number, size: number) => ((size / 2 - (coordinate % worldStep) * camera.zoom) % step + step) % step
+    const left = phase(camera.x, width), top = phase(camera.y, height)
+    context.setTransform(this.scaleX, 0, 0, this.scaleY, 0, 0)
+    if (background === 'dotted') {
+      context.fillStyle = '#aebbd0'
+      for (let x = left; x < width; x += step) {
+        for (let y = top; y < height; y += step) context.fillRect(x, y, 1.5, 1.5)
+      }
+      return
+    }
+
+    context.strokeStyle = background === 'millimeter' ? '#e3e9f2' : '#dbe3ef'
+    context.lineWidth = 1
+    context.beginPath()
+    for (let x = left; x < width; x += step) { context.moveTo(x, 0); context.lineTo(x, height) }
+    for (let y = top; y < height; y += step) { context.moveTo(0, y); context.lineTo(width, y) }
+    context.stroke()
+  }
+
+  private drawOverlay(overlay: CanvasOverlay, camera: Camera): void {
+    const context = this.liveContext
+    context.setTransform(this.scaleX, 0, 0, this.scaleY, 0, 0)
+    context.strokeStyle = '#5885e9'
+    context.lineWidth = 1.5
+
+    if (overlay.region?.length) this.drawRegion(overlay.region, camera, true)
+    if (overlay.selection) {
+      const { bounds, canRotate } = overlay.selection
+      this.drawRegion(rectanglePoints(bounds), camera, false)
+      context.fillStyle = '#fafbff'
+      for (const [index, point] of selectionHandles(bounds, camera.zoom, canRotate).entries()) {
+        const { x, y } = worldToScreen(point, camera, this.viewport)
+        context.beginPath()
+        if (index === 4) {
+          context.moveTo(x, y + 5)
+          context.lineTo(x, y + 25)
+          context.stroke()
+          context.beginPath()
+          context.arc(x, y, 5, 0, 2 * Math.PI)
+        } else {
+          context.rect(x - 4, y - 4, 8, 8)
+        }
+        context.fill()
+        context.stroke()
+      }
+    }
+    if (overlay.eraser) {
+      const { x, y } = worldToScreen(overlay.eraser.point, camera, this.viewport)
+      context.beginPath()
+      context.arc(x, y, overlay.eraser.radius * camera.zoom, 0, 2 * Math.PI)
+      context.stroke()
+    }
+  }
+
+  private drawRegion(points: readonly Point[], camera: Camera, dotted: boolean): void {
+    const context = this.liveContext
+    const start = worldToScreen(points[0]!, camera, this.viewport)
+    context.beginPath()
+    context.moveTo(start.x, start.y)
+    for (const point of points.slice(1)) {
+      const { x, y } = worldToScreen(point, camera, this.viewport)
+      context.lineTo(x, y)
+    }
+    context.closePath()
+    if (dotted) context.setLineDash([5, 4])
+    context.stroke()
+    context.setLineDash([])
   }
 }

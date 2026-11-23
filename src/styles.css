@@ -12,9 +12,9 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; }
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 button { cursor: pointer; }
-button:focus-visible, input:focus-visible, canvas:focus-visible {
+button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
@@ -35,8 +35,8 @@ button:focus-visible, input:focus-visible, canvas:focus-visible {
 }
 .toolbar { border-bottom: 1px solid var(--line); }
 .toolbar h1 { margin: 0; font-size: 1.1rem; font-weight: 730; }
-.tool-group, .zoom-group, .history-group, .pwa-group { display: flex; align-items: center; gap: 2px; }
-.toolbar button, .status-bar button, .file-menu summary {
+.zoom-group, .history-group, .pwa-group, .frame-navigation { display: flex; align-items: center; gap: 2px; }
+.toolbar button, .status-bar button, .file-menu summary, .drawing-tools button, .tool-settings summary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -51,10 +51,12 @@ button:focus-visible, input:focus-visible, canvas:focus-visible {
   font-size: .875rem;
   font-weight: 620;
 }
-.toolbar button:hover:not(:disabled), .status-bar button:hover:not(:disabled), .file-menu summary:hover { background: #e8ebf2; }
+.toolbar button:hover:not(:disabled), .status-bar button:hover:not(:disabled), .file-menu summary:hover,
+.drawing-tools button:hover, .tool-settings summary:hover { background: #e8ebf2; }
 .toolbar button:disabled, .status-bar button:disabled { color: #687287; opacity: .58; cursor: default; }
-.toolbar button[aria-pressed='true'] { background: #e4e8ff; color: #2a388d; }
-.file-menu { position: relative; z-index: 1; }
+.drawing-tools button[aria-pressed='true'] { background: #e4e8ff; color: #2a388d; }
+.toolbar { position: relative; z-index: 3; }
+.file-menu { position: relative; }
 .file-menu summary { list-style: none; cursor: pointer; }
 .file-menu summary::-webkit-details-marker { display: none; }
 .file-menu summary:focus-visible { outline: 2px solid var(--accent); }
@@ -70,31 +72,97 @@ button:focus-visible, input:focus-visible, canvas:focus-visible {
   box-shadow: 0 8px 25px #19203826;
 }
 .file-actions button { justify-content: flex-start; }
-.pen-icon {
-  width: 12px;
-  height: 4px;
-  border-radius: 1px;
-  background: currentColor;
-  transform: rotate(-46deg);
+.file-actions hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+.check-option { display: flex; align-items: center; padding: 6px 8px; gap: 6px; font-size: .84rem; }
+.pdf-page-actions {
+  display: grid;
+  overflow-y: auto;
+  max-height: min(36vh, 260px);
+  border-top: 1px solid var(--line);
 }
-.hand-icon { font-size: 1.125rem; line-height: 1; }
-.stabilizer {
+.background-setting, .stabilizer {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-inline-start: auto;
   font-size: .875rem;
   color: var(--muted);
+}
+.stabilizer { margin-inline-start: auto; }
+.background-setting select, .frame-navigation select, .tool-settings select, .tool-settings input {
+  max-width: 180px;
+  min-height: 36px;
+  color: #192038;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: .85rem;
 }
 .stabilizer input { width: clamp(60px, 12vw, 128px); min-height: 44px; accent-color: var(--accent); }
 .stabilizer output { width: 3ch; text-align: end; font-variant-numeric: tabular-nums; }
 
-.surface { position: relative; overflow: hidden; background: var(--surface); }
+.workspace { min-height: 0; min-width: 0; display: flex; }
+.dock-top { flex-direction: column; }
+.dock-bottom { flex-direction: column-reverse; }
+.dock-right { flex-direction: row-reverse; }
+.surface { flex: 1; min-width: 0; min-height: 0; position: relative; overflow: hidden; background: var(--surface); }
 .surface canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 .live-surface { touch-action: none; cursor: crosshair; }
 .surface[aria-busy='true'] { pointer-events: none; cursor: wait; }
 .live-surface[data-tool='hand'] { cursor: grab; }
 .live-surface[data-tool='hand']:active { cursor: grabbing; }
+
+.drawing-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px clamp(4px, 1vw, 14px);
+  color: #30405e;
+  background: #ecf0f6;
+  border: 1px solid var(--line);
+  position: relative;
+  z-index: 2;
+}
+.drawing-tool-list, .favorites { display: flex; align-items: center; gap: 2px; }
+.favorites { padding-inline-start: 6px; border-inline-start: 1px solid #cbd4e3; margin-inline-start: 3px; }
+.drawing-tools button { flex-direction: column; gap: 1px; padding: 2px 5px; min-width: 49px; }
+.drawing-tools button > span { font-size: 1.14rem; line-height: 1; }
+.drawing-tools small { font-size: .75rem; line-height: 1.2; }
+.favorites button { min-width: 44px; }
+.favorites button > span { display: block; height: 13px; border-radius: 99px; box-shadow: inset 0 0 0 1px #19203833; }
+.drawing-tools .dock-handle { cursor: grab; touch-action: none; min-width: 36px; }
+.drawing-tools.docking .dock-handle { cursor: grabbing; background: #dbe3fb; }
+.tool-settings { position: relative; }
+.tool-settings summary { cursor: pointer; list-style: none; }
+.tool-settings-body {
+  position: absolute;
+  top: 100%;
+  padding: 9px;
+  background: #fff;
+  box-shadow: 0 8px 25px #19203826;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 165px;
+  display: grid;
+  row-gap: 5px;
+}
+.tool-settings-body label { display: flex; font-size: .82rem; gap: 8px; align-items: center; justify-content: space-between; }
+.tool-settings-body input { width: 56px; }
+.dock-bottom .tool-settings-body { bottom: 100%; top: auto; }
+.dock-left .tool-settings-body { left: 100%; top: 0; }
+.dock-right .tool-settings-body { right: 100%; top: 0; }
+.dock-left .drawing-tools, .dock-right .drawing-tools,
+.dock-left .drawing-tool-list, .dock-right .drawing-tool-list { flex-direction: column; }
+.dock-left .drawing-tools, .dock-right .drawing-tools { padding-inline: 4px; }
+.dock-left .favorites, .dock-right .favorites {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  margin: 4px 0 0;
+  padding: 4px 0 0;
+  border-inline-start: none;
+  border-top: 1px solid #cbd4e3;
+}
+.dock-left .favorites button, .dock-right .favorites button { min-width: 44px; }
 
 .status-bar { border-top: 1px solid var(--line); color: var(--muted); }
 .document-status, .pwa-group, .scroll-setting { margin: 0; font-size: .875rem; }
@@ -106,6 +174,7 @@ button:focus-visible, input:focus-visible, canvas:focus-visible {
 
 @media (max-width: 620px) {
   .toolbar, .status-bar { flex-wrap: wrap; }
+  .dock-top .drawing-tools, .dock-bottom .drawing-tools { flex-wrap: wrap; }
   .scroll-setting { margin-inline-start: 0; }
   .zoom-group { margin-inline-start: auto; }
 }

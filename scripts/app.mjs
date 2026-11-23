@@ -45,6 +45,7 @@ async function compile() {
   })
 
   if (await exists(join(root, 'public'))) await cp(join(root, 'public'), dist, { recursive: true })
+  await copyPdfAssets()
 
   const entry = Object.entries(metafile.outputs).find(([, details]) => details.entryPoint === 'src/main.tsx')
   if (!entry) throw new Error('No application entry was generated.')
@@ -59,6 +60,27 @@ async function compile() {
   await writeNotices([metafile, workerOutput].filter(Boolean))
   await writePrecache()
   console.log('Static build written to dist/')
+}
+
+async function copyPdfAssets() {
+  const source = join(root, 'node_modules', 'pdfjs-dist')
+  const target = join(dist, 'pdfjs')
+  await mkdir(target)
+  await cp(join(source, 'LICENSE'), join(target, 'LICENSE'))
+  for (const name of ['pdf.worker', 'pdf.renderer']) {
+    await cp(join(source, 'build', `${name}.min.mjs`), join(target, `${name}.mjs`))
+  }
+  const permitted = {
+    cmaps: (name) => name === 'LICENSE' || name.endsWith('.bcmap'),
+    standard_fonts: (name) => name === 'LICENSE_FOXIT' || /^Foxit[A-Za-z]+\.pfb$/.test(name),
+    wasm: (name) => /^(?:LICENSE_(?:PDFJS_)?(?:JBIG2|OPENJPEG|QCMS)|(?:jbig2|openjpeg)(?:\.wasm|_nowasm_fallback\.js)|qcms_bg\.wasm)$/.test(name),
+  }
+  for (const [directory, include] of Object.entries(permitted)) {
+    await mkdir(join(target, directory))
+    for (const name of (await readdir(join(source, directory))).filter(include)) {
+      await cp(join(source, directory, name), join(target, directory, name))
+    }
+  }
 }
 
 async function writeNotices(metafiles) {
@@ -96,7 +118,8 @@ async function writePrecache() {
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8', '.png': 'image/png',
+  '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.png': 'image/png',
+  '.wasm': 'application/wasm',
   '.webmanifest': 'application/manifest+json', '.json': 'application/json',
   '.md': 'text/plain; charset=utf-8', '.txt': 'text/plain; charset=utf-8',
 }
