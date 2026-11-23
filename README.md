@@ -1,6 +1,6 @@
 # Lousa
 
-Lousa digital de código aberto para aulas de matemática. O Marco 2 oferece caneta com estabilizador, pan, zoom, histórico, recuperação da última lousa salva no navegador e arquivos portáteis `.board`. Os traços são redesenhados a partir da geometria vetorial. A lousa pode ser instalada e usada offline depois que os recursos estiverem disponíveis no dispositivo.
+Lousa digital de código aberto para aulas de matemática. A Etapa A inclui caneta, marca-texto, borracha, seleção, fundos, imagens, anotação de PDFs, quadros e exportação. A lousa mantém autosave e arquivos `.board` e pode ser instalada para uso offline.
 
 ## Executar localmente
 
@@ -16,6 +16,12 @@ Abra a URL exibida no terminal no Chrome ou Edge. O Firefox é o navegador secun
 | Ação | Comando |
 | --- | --- |
 | Desenhar | Caneta, tecla `P` ou botão esquerdo na lousa |
+| Marcar / apagar | `H` para marca-texto, `E` para borracha, segurar `X` para apagar temporariamente |
+| Trocar cor e espessura | `1` a `6`. Edite o favorito atual em **Ajustes** |
+| Mover a barra | Arraste a alça até uma borda ou escolha a posição em **Ajustes** |
+| Selecionar | `V` retângulo, `B` laço, `Esc` para limpar |
+| Transformar seleção | Arraste a seleção ou seus puxadores. Use `Alt` + setas para mover, `Alt` + `+` ou `−` para redimensionar e `R` / `Shift+R` para girar |
+| Copiar, recortar, colar, duplicar e excluir | `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Ctrl+D` e `Delete` |
 | Suavizar o traço | Controle Estabilizador de 0 a 100 |
 | Mover a lousa | Arrastar com botão do meio, Espaço ou Ctrl, ou selecionar Mão (`M`) |
 | Dar zoom | Roda do mouse, `+` e `−` ou controles na barra |
@@ -23,6 +29,13 @@ Abra a URL exibida no terminal no Chrome ou Edge. O Firefox é o navegador secun
 | Voltar à origem e ao zoom de 100% | Tecla `0` ou clique no percentual |
 | Desfazer / refazer | `Ctrl+Z` / `Ctrl+Y` ou `Ctrl+Shift+Z` |
 | Abrir / salvar `.board` | Menu Arquivo ou `Ctrl+O` / `Ctrl+S` |
+| Inserir imagem / PDF | `I` / `D`, arraste o arquivo ou use `Ctrl+V` quando o navegador disponibilizar o arquivo |
+| Trocar o fundo | `G` ou menu **Fundo** |
+| Travar uma página | `U` na página selecionada ou no quadro vinculado. Também disponível em **Quadros** |
+| Criar e navegar quadros | `N` cria um quadro 16:9. Use as setas para navegar e `Enter` para enquadrar |
+| Exportar | `Y` para PDF por quadros, `Shift+Y` para PDF de todo o conteúdo e `J` para PNG do quadro atual |
+
+As páginas PDF entram travadas para anotação e geram quadros na ordem. Em **Quadros**, destrave uma página para movê-la ou desative a criação automática antes de importar. Ao mover uma página, a tinta ancorada e o quadro vinculado a acompanham. Na exportação, o PDF de origem é incorporado quando possível. Páginas incompatíveis são renderizadas em alta resolução e a lousa informa quantas usaram essa alternativa.
 
 ## Salvamento e uso offline
 
@@ -37,8 +50,10 @@ Um `.board` é um ZIP de um único volume com entradas Store (0) ou Deflate (8).
 | Entrada | Conteúdo |
 | --- | --- |
 | `manifest.json` | Objeto com `format: "board"`, `version: 1`, `scenePath: "scene.json"` e `assets`. Cada item em `assets` tem `id`, `path: "assets/<id>"`, `mime` e `size` em bytes. Use `assets: []` quando a lousa não tiver arquivos incorporados. |
-| `scene.json` | Objeto com `version: 1` e lista `objects`. No Marco 2, cada objeto é um traço (`type: "stroke"`). |
-| `assets/<id>` | Bytes do ativo catalogado no manifesto. A importação de PDF e imagens na interface pertence a marcos seguintes. |
+| `scene.json` | Objeto com `version: 1` e lista `objects`. Aceita traços, imagens, páginas PDF e quadros. Arquivos antigos de tinta continuam legíveis. |
+| `assets/<id>` | Bytes do PDF ou da imagem catalogados no manifesto. |
+
+`image` e `pdfPage` usam `props` com `width`, `height` e `assetId`. `pdfPage` também tem `pageIndex` a partir de zero. `frame` usa `width`, `height`, `name` e `order`. Traços e quadros podem ter `parentId` com o ID de uma página PDF. Traços têm `brush.opacity` opcional para marca-texto.
 
 Cada traço tem `id`, `type`, `transform`, `zIndex`, `locked` e `props`. IDs têm de 1 a 128 caracteres e usam letras ASCII, dígitos, `_` e `-`. `transform` é uma matriz afim invertível `[a, b, c, d, e, f]`. Ela leva o ponto local `(x, y)` a `(ax + cy + e, bx + dy + f)` no mundo, com Y crescente para baixo. `zIndex` define a ordem de pintura. `props` contém `version: 1`, uma lista `points` com `x`, `y` e pressão opcional entre 0 e 1, e `brush` com `color` em `#RRGGBB`, `size` em unidades locais, `stabilizer` entre 0 e 100 e `simulatePressure` booleano.
 
@@ -82,9 +97,9 @@ A [lousa no GitHub Pages](https://pedro-lucas-abreu.github.io/whiteboard_/) usa 
 
 ## Licenças
 
-Licença do projeto: [MIT](LICENSE). A regra do plano admite MIT, Apache-2.0, BSD, ISC e Zlib, além de OFL-1.1 para fontes. GPL e AGPL são vetadas para código. O SDK do tldraw fica fora do projeto.
+Licença do projeto: [MIT](LICENSE). A regra admite licenças permissivas, OFL para fontes e MPL-2.0 em dependências usadas sem modificação. GPL e AGPL embutidas e o SDK do tldraw são vetados.
 
-Licenças declaradas pelos pacotes do Marco 2, incluindo dependências transitivas. As versões exatas estão no `pnpm-lock.yaml`.
+Licenças declaradas pelos pacotes da Etapa A, incluindo dependências transitivas. As versões exatas estão no `pnpm-lock.yaml`.
 
 | Licença | Pacotes |
 | --- | --- |
@@ -92,6 +107,11 @@ Licenças declaradas pelos pacotes do Marco 2, incluindo dependências transitiv
 | MIT | `@esbuild/*`, `@types/node`, `@types/rbush`, `@types/react`, `@types/react-dom`, `csstype`, `esbuild`, `undici-types` |
 | Apache-2.0 | `typescript` |
 | ISC | `idb`, `quickselect` |
+| MIT | `@cantoo/pdf-lib` 2.11.1, `culori` 4.0.2, `html-entities` 2.6.0, `node-html-better-parser` 1.5.9 |
+| 0BSD | `tslib` 2.9.1 |
+| Apache-2.0 | `pdfjs-dist` 6.5.438 (API e workers) |
+
+O build inclui os CMaps Adobe e fontes Foxit sob BSD-3-Clause, OpenJPEG sob BSD-2-Clause, qcms sob MIT e o decodificador JBIG2 do PDFium sob BSD-3-Clause e Apache-2.0. As fontes Liberation licenciadas sob GPL-2.0 e os recursos opcionais fora dessa seleção ficam fora do build. Os avisos acompanham o pacote publicado. [Recursos da distribuição do PDF.js](https://github.com/mozilla/pdf.js/tree/v6.5.438/external)
 
 O pacote opcional com o binário do esbuild varia conforme o sistema operacional e a arquitetura. Consulte as licenças instaladas na sua plataforma com o comando abaixo.
 
