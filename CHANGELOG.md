@@ -1,5 +1,11 @@
 # Mudanças
 
+## Etapa B — Texto e formas
+
+- Pressione **T** e clique para digitar. Dê duplo clique em um texto com **Texto** ou **Seleção** para editar. **Enter** salva, **Shift+Enter** cria uma nova linha e **Esc** cancela.
+- Em **Formas**, escolha linha, seta, retângulo, elipse ou polígono. Segure **Shift** para travar ângulos, desenhar um quadrado ou desenhar um círculo. No polígono, clique nos vértices e finalize com **Enter** ou duplo clique.
+- Selecione texto e formas para mover, editar a posição, duplicar ou excluir. As formas saem como vetor no PDF.
+
 ## Correções após uso em aula
 
 - Arrastar ou dar duplo clique na barra e nos menus deixa a interface livre de seleção. Os campos de entrada continuam com seleção normal, e **Ctrl+A** seleciona os objetos da lousa fora deles.

@@ -30,3 +30,9 @@
 - Whole-stroke erasing uses one grouped edit per gesture. Extra scene types, optional stroke opacity and PDF links extend `.board` v1. Existing IndexedDB stores and older add-stroke commands remain readable.
 - The selection clipboard is local to the tab. Browser paste and drag-and-drop also accept files. Some Windows clipboard sources do not expose copied PDFs to the browser, so use the file picker or drop the PDF in that case.
 - Use PDF.js for fixed high-resolution full-page previews. The build publishes an explicit list of workers and supporting assets; system fonts substitute for the omitted GPL Liberation assets. PDF import accepts unencrypted files. Frame export prefers the original PDF page and falls back to a high-resolution raster for unsupported content, while handwriting remains vector paths. Temporary board and toolbar display settings apply to the current session. The export uses a plain background color for the board; PDF page content keeps its own background.
+
+## Classroom reports and Stage B
+
+- Classroom feedback reported native text selection on the chrome of the app and requested right-button panning. Suppress native selection on the interface and preserve it in inputs and editors. Right drag pans, middle click is inert, and Ctrl+A on the board selects unlocked objects.
+- Stage B adds an HTML textarea over the canvas and serializable text and shape objects. Double-click editing applies in the Text and Select tools. Shift snaps edges to 45-degree increments and makes rectangles and ellipses square or round. Shape exports stay vector. PDF text uses the standard Helvetica face, with a raster fallback for objects with characters unsupported by the PDF font. The application reports fallback counts.
+- Stop after publishing text and shapes for classroom testing. Present the KaTeX and MathJax comparison and await the user's choice before adding equation support.

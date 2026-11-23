@@ -1,6 +1,6 @@
 # Lousa
 
-Lousa digital de código aberto para aulas de matemática. A Etapa A inclui caneta, marca-texto, borracha, seleção, fundos, imagens, anotação de PDFs, quadros e exportação. A lousa mantém autosave e arquivos `.board` e pode ser instalada para uso offline.
+Lousa digital de código aberto para aulas de matemática. Inclui caneta, marca-texto, borracha, seleção, fundos, imagens, anotação de PDFs, quadros, exportação, texto e formas. A lousa mantém autosave e arquivos `.board` e pode ser instalada para uso offline.
 
 ## Executar localmente
 
@@ -22,6 +22,9 @@ Abra a URL exibida no terminal no Chrome ou Edge. O Firefox é o navegador secun
 | Selecionar | `V` retângulo, `B` laço, `Ctrl+A` para todos os objetos destravados e `Esc` para limpar |
 | Transformar seleção | Arraste a seleção ou seus puxadores. Use `Alt` + setas para mover, `Alt` + `+` ou `−` para redimensionar e `R` / `Shift+R` para girar |
 | Copiar, recortar, colar, duplicar e excluir | `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Ctrl+D` e `Delete` |
+| Inserir e editar texto | `T` e clique na lousa. Dê duplo clique em um texto com **Texto** ou **Seleção** para editar. `Enter` confirma, `Shift+Enter` insere nova linha e `Esc` cancela |
+| Desenhar formas | `L` linha, `A` seta, `W` retângulo, `O` elipse e `C` polígono. Arraste para desenhar. No polígono, clique nos vértices e confirme com `Enter` ou duplo clique |
+| Restringir formas | Segure `Shift` para ângulos de 45° em linhas, setas ou segmentos do polígono e para desenhar quadrados ou círculos |
 | Suavizar o traço | Controle Estabilizador de 0 a 100 |
 | Mover a lousa | O botão direito arrasta a lousa. Também funcionam Espaço ou Ctrl + arrastar e a ferramenta Mão (`M`) |
 | Dar zoom | Roda do mouse, `+` e `−` ou controles na barra |
@@ -50,7 +53,7 @@ Um `.board` é um ZIP de um único volume com entradas Store (0) ou Deflate (8).
 | Entrada | Conteúdo |
 | --- | --- |
 | `manifest.json` | Objeto com `format: "board"`, `version: 1`, `scenePath: "scene.json"` e `assets`. Cada item em `assets` tem `id`, `path: "assets/<id>"`, `mime` e `size` em bytes. Use `assets: []` quando a lousa não tiver arquivos incorporados. |
-| `scene.json` | Objeto com `version: 1` e lista `objects`. Aceita traços, imagens, páginas PDF e quadros. Arquivos antigos de tinta continuam legíveis. |
+| `scene.json` | Objeto com `version: 1` e lista `objects`. Aceita traços, imagens, páginas PDF, quadros, texto e formas. Arquivos anteriores continuam legíveis. |
 | `assets/<id>` | Bytes do PDF ou da imagem catalogados no manifesto. |
 
 `image` e `pdfPage` usam `props` com `width`, `height` e `assetId`. `pdfPage` também tem `pageIndex` a partir de zero. `frame` usa `width`, `height`, `name` e `order`. Traços e quadros podem ter `parentId` com o ID de uma página PDF. Traços têm `brush.opacity` opcional para marca-texto.
