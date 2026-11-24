@@ -13,6 +13,8 @@ pnpm.cmd dev
 
 Abra a URL exibida no terminal no Chrome ou Edge. O Firefox é o navegador secundário do projeto.
 
+Pressione **?** ou abra **Arquivo → Atalhos** para consultar a lista completa, incluindo os gestos de mouse e as expansões do editor de equações. Use **Esc** para fechar o painel.
+
 | Ação | Comando |
 | --- | --- |
 | Desenhar | Caneta, tecla `P` ou botão esquerdo na lousa |

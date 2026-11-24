@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { PointerEvent } from 'react'
 import type { BoardTool, BrushStyle } from '../canvas/controller'
+import { acceptsPointer, shortcutAction, shortcutAria, shortcutLabel } from '../shortcuts'
 
 export type Dock = 'top' | 'right' | 'bottom' | 'left'
 export type Background = 'white' | 'dark' | 'dotted' | 'grid' | 'millimeter'
@@ -9,23 +10,18 @@ export const backgrounds: Readonly<Record<Background, string>> = {
   white: 'Branco', dark: 'Escuro', dotted: 'Pontilhado', grid: 'Quadriculado', millimeter: 'Milimetrado',
 }
 
-export const tools: ReadonlyArray<{ id: BoardTool; label: string; key: string; icon: string }> = [
-  { id: 'pen', label: 'Caneta', key: 'P', icon: '✎' },
-  { id: 'highlight', label: 'Marca-texto', key: 'H', icon: '▰' },
-  { id: 'erase', label: 'Borracha', key: 'E', icon: '▱' },
-  { id: 'select', label: 'Seleção', key: 'V', icon: '⬚' },
-  { id: 'lasso', label: 'Laço', key: 'B', icon: '⌁' },
-  { id: 'hand', label: 'Mão', key: 'M', icon: '✥' },
-  { id: 'text', label: 'Texto', key: 'T', icon: 'T' },
-  { id: 'equation', label: 'Equação', key: 'Q', icon: 'ƒ' },
+function makeTool(id: BoardTool, icon: string) {
+  const shortcut = `tool-${id}`
+  return { id, label: shortcutAction(shortcut), key: shortcutLabel(shortcut), ariaKey: shortcutAria(shortcut), icon }
+}
+
+export const tools = [
+  makeTool('pen', '✎'), makeTool('highlight', '▰'), makeTool('erase', '▱'), makeTool('select', '⬚'),
+  makeTool('lasso', '⌁'), makeTool('hand', '✥'), makeTool('text', 'T'), makeTool('equation', 'ƒ'),
 ]
 
 export const shapeTools: typeof tools = [
-  { id: 'line', label: 'Linha', key: 'L', icon: '╱' },
-  { id: 'arrow', label: 'Seta', key: 'A', icon: '↗' },
-  { id: 'rectangle', label: 'Retângulo', key: 'W', icon: '▭' },
-  { id: 'ellipse', label: 'Elipse', key: 'O', icon: '○' },
-  { id: 'polygon', label: 'Polígono', key: 'C', icon: '⬠' },
+  makeTool('line', '╱'), makeTool('arrow', '↗'), makeTool('rectangle', '▭'), makeTool('ellipse', '○'), makeTool('polygon', '⬠'),
 ]
 
 const docks: Readonly<Record<Dock, string>> = {
@@ -71,9 +67,9 @@ export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onFavor
   return (
     <aside className={`drawing-tools${dragging ? ' docking' : ''}`} aria-label="Ferramentas de desenho">
       <button type="button" className="dock-handle" aria-label="Arrastar a barra até uma borda ou pressionar para mudar sua posição"
-        title="Arraste até uma borda para mover a barra. Clique ou pressione Enter para alternar."
+        title={`Reposicionar barra (${shortcutLabel('dock-bar')})`}
         onPointerDown={(event) => {
-          if (event.button !== 0) return
+          if (!acceptsPointer('dock-bar', event.button)) return
           event.currentTarget.setPointerCapture(event.pointerId)
           setDragging(true)
         }} onPointerUp={endDockDrag} onPointerCancel={() => setDragging(false)}
@@ -88,7 +84,7 @@ export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onFavor
       <div className="drawing-tool-list" role="group" aria-label="Ferramentas">
         {tools.map((option) => (
           <button key={option.id} type="button" title={`${option.label} (${option.key})`}
-            aria-label={option.label} aria-keyshortcuts={option.key} aria-pressed={tool === option.id}
+            aria-label={option.label} aria-keyshortcuts={option.ariaKey} aria-pressed={tool === option.id}
             onClick={() => onTool(option.id)}>
             <span aria-hidden="true" data-ui-icon>{option.icon}</span><small>{option.label}</small>
           </button>
@@ -97,8 +93,8 @@ export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onFavor
       <details className="tool-settings shapes-menu">
         <summary title="Escolher uma forma" aria-label="Formas">{shape?.label ?? 'Formas'}</summary>
         <div className="tool-settings-body shape-choices">
-          {shapeTools.map(({ id, label, key, icon }) => <button key={id} type="button" aria-pressed={tool === id}
-            aria-keyshortcuts={key} title={`${label} (${key})`} onClick={(event) => {
+          {shapeTools.map(({ id, label, key, ariaKey, icon }) => <button key={id} type="button" aria-pressed={tool === id}
+            aria-keyshortcuts={ariaKey} title={`${label} (${key})`} onClick={(event) => {
               onTool(id)
               const menu = event.currentTarget.closest('details')
               if (menu) menu.open = false
@@ -110,7 +106,7 @@ export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onFavor
       <div className="favorites" role="group" aria-label="Favoritos de cor e espessura">
         {favorites.map(({ color, size }, index) => (
           <button key={index} type="button" aria-label={`Favorito ${index + 1}, ${size} px`}
-            aria-pressed={index === favorite} aria-keyshortcuts={String(index + 1)}
+            aria-pressed={index === favorite} aria-keyshortcuts={shortcutAria(`favorite-${index + 1}`)}
             title={`Favorito ${index + 1} · ${size} px`} onClick={() => onFavorite(index)}>
             <span aria-hidden="true" style={{ backgroundColor: color, width: Math.max(9, Math.min(20, size + 7)) }} />
             <small>{index + 1}</small>

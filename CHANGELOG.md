@@ -1,5 +1,11 @@
 # Mudanças
 
+## Atalhos e edição de equações
+
+- Abra o painel com **?** ou em **Arquivo → Atalhos**. Busque por tecla, ação ou categoria. **Esc** fecha o painel.
+- No editor LaTeX, digite `^`, `_` ou `{` para abrir um par de chaves. Use **Tab** para avançar pelos campos ou digite `}` para passar pela chave já presente.
+- Digite `frac`, `nroot` ou `alpha` e pressione **Tab** para expandir. Símbolos como `<=`, `->` e `inf` viram comandos LaTeX ao digitar. A lista completa fica em **Equações** no painel.
+
 ## Etapa B — Equações e apresentação
 
 - **Q** abre o editor de equações com prévia ao digitar. **Enter** insere na cor ativa. Em **Seleção**, dê duplo clique na equação para alterar o LaTeX.

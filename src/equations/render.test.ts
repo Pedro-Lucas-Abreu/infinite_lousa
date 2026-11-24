@@ -37,3 +37,9 @@ test("scales equation paths with the font and recovers after invalid LaTeX", asy
   assert.deepEqual(large.paths.map(({ d }) => d), normal.paths.map(({ d }) => d));
   assert.deepEqual(large.paths.map(({ transform }) => transform), normal.paths.map(({ transform }) => transform.map((coordinate) => coordinate * 2)));
 });
+
+test("keeps the standard LaTeX meaning of a parenthesized exponent", async () => {
+  const literal = await renderEquation("x^(2x)", 24);
+  const grouped = await renderEquation("x^{(2x)}", 24);
+  assert.ok(literal.width > grouped.width);
+});

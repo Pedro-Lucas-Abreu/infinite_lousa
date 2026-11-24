@@ -3,12 +3,13 @@ import { objectBounds, type Scene } from '../core/scene'
 import { StrokeInput } from '../core/stroke'
 import type { Affine, BoardChange, BoardObject, Bounds, Camera, EquationObject, FrameObject, Point, ShapeKind,
   ShapeObject, Stroke, StrokePoint, TextObject, Viewport } from '../core/types'
+import { acceptsPointer, findShortcut, pointerButtons, pointerConstrained, secondaryButtonMask,
+  shouldExtendSelection, shouldStartPan, shouldZoomWithWheel } from '../shortcuts'
 import { boundsFromPoints, expandBounds, fittingFrame, hitInk, hitObject, multiplyTransforms, rectanglePoints,
   regionIntersects, selectionHandles } from './geometry'
 import { CanvasRenderer, type BackgroundFrameMetrics, type BoardBackground, type CanvasOverlay,
   type CanvasPointer, type GetPageRaster, type PointerEffect } from './renderer'
 
-import { shouldStartPan } from './pan'
 import { appendVertex, dragShapePoints, isDrawableShape, snapAngle, type DragShape } from './shapes'
 
 export type { BackgroundFrameMetrics } from './renderer'
@@ -598,11 +599,11 @@ export class BoardController {
 
   private pointerDown = (event: PointerEvent): void => {
     window.getSelection()?.removeAllRanges()
-    if (event.button === 1) {
+    if (event.button === pointerButtons.middle) {
       event.preventDefault()
       return
     }
-    if (event.button !== 0 && event.button !== 2) return
+    if (event.button !== pointerButtons.primary && event.button !== pointerButtons.secondary) return
     const isTouch = event.pointerType === 'touch'
     if (this.gesture && (!isTouch || !this.touches.has(this.gesture.pointerId))) return
 
@@ -634,13 +635,13 @@ export class BoardController {
       this.gesture = gesture
       this.eraseAlong(gesture, world)
     } else if (tool === 'select' || tool === 'lasso' || tool === 'frame') {
-      this.beginSelection(tool, event.pointerId, world, event.shiftKey)
+      this.beginSelection(tool, event.pointerId, world, shouldExtendSelection(event))
     } else if (tool === 'text' || tool === 'equation' || tool === 'polygon') {
       const kind = tool === 'text' ? 'textClick' : tool === 'equation' ? 'equationClick' : 'polygonClick'
       this.gesture = { kind, pointerId: event.pointerId, start: world }
     } else if (tool === 'line' || tool === 'arrow' || tool === 'rectangle' || tool === 'ellipse') {
       this.gesture = { kind: 'shape', shape: tool, pointerId: event.pointerId, start: world, end: world,
-        constrained: event.shiftKey, style: { color: this.style.color, size: this.style.size / this.camera.zoom },
+        constrained: pointerConstrained(event), style: { color: this.style.color, size: this.style.size / this.camera.zoom },
         parentId: this.pdfAt(world) }
       this.refreshLive()
     } else {
@@ -677,7 +678,7 @@ export class BoardController {
     }
     if (hoverPolygon) {
       const last = hoverPolygon.points.at(-1)!
-      hoverPolygon.hover = event.shiftKey ? snapAngle(last, world) : world
+      hoverPolygon.hover = pointerConstrained(event) ? snapAngle(last, world) : world
       this.refreshLive()
     }
 
@@ -691,7 +692,7 @@ export class BoardController {
 
     if (this.gesture?.pointerId !== event.pointerId) return
     if (this.gesture.kind === 'pan') {
-      if (this.gesture.button === 2 && (event.buttons & 2) === 0) {
+      if (this.gesture.button === pointerButtons.secondary && (event.buttons & secondaryButtonMask) === 0) {
         this.endRightPan()
         return
       }
@@ -705,10 +706,10 @@ export class BoardController {
       }
     } else if (this.gesture.kind === 'shape') {
       this.gesture.end = world
-      this.gesture.constrained = event.shiftKey
+      this.gesture.constrained = pointerConstrained(event)
       this.refreshLive()
     } else if (this.gesture.kind !== 'textClick' && this.gesture.kind !== 'equationClick' && this.gesture.kind !== 'polygonClick') {
-      this.updateEdit(this.gesture, world, event.shiftKey)
+      this.updateEdit(this.gesture, world, pointerConstrained(event))
     }
   }
 
@@ -751,12 +752,12 @@ export class BoardController {
       this.completedGestures.push(gesture)
     } else if (gesture.kind === 'shape') {
       gesture.end = world
-      gesture.constrained = event.shiftKey
+      gesture.constrained = pointerConstrained(event)
       const shape = this.dragShape(gesture, crypto.randomUUID())
       if (shape) this.applyChanges([{ after: shape }])
     } else if (gesture.kind === 'polygonClick' || gesture.kind === 'textClick' || gesture.kind === 'equationClick') {
       if (distance(world, gesture.start) <= 6 / this.camera.zoom) {
-        if (gesture.kind === 'polygonClick') this.addPolygonPoint(world, event.shiftKey)
+        if (gesture.kind === 'polygonClick') this.addPolygonPoint(world, pointerConstrained(event))
         else {
           const requested = gesture.kind === 'equationClick' ? 'equation' : 'text'
           const object = this.editableAt(world)
@@ -765,7 +766,7 @@ export class BoardController {
         }
       }
     } else if (gesture.kind !== 'pan') {
-      this.updateEdit(gesture, world, event.shiftKey)
+      this.updateEdit(gesture, world, pointerConstrained(event))
       this.commitEdit(gesture)
     }
     this.cancelGesture()
@@ -777,11 +778,11 @@ export class BoardController {
   }
 
   private preventMiddleClick = (event: MouseEvent): void => {
-    if (event.button === 1) event.preventDefault()
+    if (event.button === pointerButtons.middle) event.preventDefault()
   }
 
   private endRightPan = (event?: MouseEvent): void => {
-    if ((event && event.button !== 2) || this.gesture?.kind !== 'pan' || this.gesture.button !== 2) return
+    if ((event && event.button !== pointerButtons.secondary) || this.gesture?.kind !== 'pan' || this.gesture.button !== pointerButtons.secondary) return
     this.releasePointers()
     this.cancelGesture()
   }
@@ -809,20 +810,21 @@ export class BoardController {
   }
 
   private doubleClick = (event: MouseEvent): void => {
-    if (event.button !== 0 || this.pointerEffect) return
+    if (event.button !== pointerButtons.primary || this.pointerEffect) return
     const tool = this.activeTool()
     if (tool === 'polygon') {
-      this.finishPolygon()
+      if (acceptsPointer('finish-polygon', event.button)) this.finishPolygon()
     } else if (tool === 'select' || tool === 'lasso') {
       const rect = this.options.liveCanvas.getBoundingClientRect()
       const screen = eventPoint(event, rect)
       const object = this.editableAt(screenToWorld(screen, this.camera, this.renderer.viewport))
-      if (object) this.editExisting(object)
+      const action = object?.type === 'equation' ? 'edit-equation' : 'edit-text'
+      if (object && acceptsPointer(action, event.button)) this.editExisting(object)
     }
   }
 
   private wheel = (event: WheelEvent): void => {
-    if (this.zoomRequiresCtrl && !event.ctrlKey) return
+    if (!shouldZoomWithWheel(this.zoomRequiresCtrl, event)) return
     event.preventDefault()
     if (this.gesture && this.gesture.kind !== 'pan') return
 
@@ -835,16 +837,17 @@ export class BoardController {
   }
 
   private keyDown = (event: KeyboardEvent): void => {
-    if (event.ctrlKey || event.altKey || event.metaKey || event.defaultPrevented) return
+    const action = findShortcut(event, 'controller')
+    if (!action) return
     const target = event.target
     if (target instanceof HTMLElement && (target.isContentEditable ||
-      target.closest('input, textarea, select, button, a, [role="button"]'))) return
+      target.closest('input, textarea, select, button, a, [role="button"], dialog[open]'))) return
 
-    if (event.code === 'Space') this.spaceHeld = true
-    else if (event.code === 'KeyX') this.eraserHeld = true
-    else if (event.key === 'Shift' && this.gesture?.kind === 'shape') this.gesture.constrained = true
-    else if (event.key === 'Enter' && !this.pointerEffect && this.activeTool() === 'polygon' && this.polygon) this.finishPolygon()
-    else if (event.code === 'Escape' && (this.gesture || this.selection.size || this.polygon)) {
+    if (action === 'hold-pan') this.spaceHeld = true
+    else if (action === 'hold-eraser') this.eraserHeld = true
+    else if (action === 'constrain-shape' && this.gesture?.kind === 'shape') this.gesture.constrained = true
+    else if (action === 'finish-polygon' && !this.pointerEffect && this.activeTool() === 'polygon' && this.polygon) this.finishPolygon()
+    else if (action === 'cancel-gesture' && (this.gesture || this.selection.size || this.polygon)) {
       this.polygon = undefined
       this.cancelGesture()
       this.clearSelection()
@@ -856,16 +859,17 @@ export class BoardController {
   }
 
   private keyUp = (event: KeyboardEvent): void => {
-    if (event.key === 'Shift' && this.gesture?.kind === 'shape') {
-      this.gesture.constrained = false
+    const action = findShortcut(event, 'controller', 'keyup')
+    if (action === 'constrain-shape' && this.gesture?.kind === 'shape') {
+      this.gesture.constrained = pointerConstrained(event)
       this.refreshLive()
     }
-    if (event.code === 'Space') {
+    if (action === 'hold-pan') {
       this.spaceHeld = false
       this.updateCursor()
       if (this.presentation) this.refreshLive()
     }
-    if (event.code === 'KeyX') {
+    if (action === 'hold-eraser') {
       this.eraserHeld = false
       this.refreshLive()
       this.updateCursor()

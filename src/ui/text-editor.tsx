@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { Point } from '../core/types'
+import { findShortcut, shortcutLabel } from '../shortcuts'
 
 interface Props {
   initialText: string
@@ -20,16 +21,16 @@ export function TextEditor({ initialText, position, onCommit, onCancel }: Props)
   }, [])
 
   return <textarea ref={field} className="board-text-editor" data-board-editor aria-label="Texto da lousa"
-    placeholder="Digite o texto" title="Enter para salvar · Shift+Enter para nova linha · Esc para cancelar"
+    placeholder="Digite o texto" title={`${shortcutLabel('text-save')} para salvar · ${shortcutLabel('text-newline')} para nova linha · ${shortcutLabel('text-cancel')} para cancelar`}
     style={{ left: position.x, top: position.y }} value={text} maxLength={8_192}
     rows={Math.max(2, Math.min(7, text.split('\n').length + 1))}
     onChange={(event) => setText(event.target.value)} onBlur={() => onCommit(text)}
     onKeyDown={(event) => {
-      if (event.nativeEvent.isComposing) return
-      if (event.key === 'Escape') {
+      const action = findShortcut(event.nativeEvent, 'text')
+      if (action === 'text-cancel') {
         event.preventDefault()
         onCancel()
-      } else if (event.key === 'Enter' && !event.shiftKey) {
+      } else if (action === 'text-save') {
         event.preventDefault()
         onCommit(text)
       }

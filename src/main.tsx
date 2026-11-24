@@ -21,6 +21,8 @@ import { fitCamera, framesForPages } from './ui/frames'
 import { backgrounds, initialFavorites, shapeTools, tools, Tools } from './ui/tools'
 import { TextEditor } from './ui/text-editor'
 import { EquationEditor } from './ui/equation-editor'
+import { ShortcutsPanel } from './ui/shortcuts-panel'
+import { findShortcut, shortcutAria, shortcutLabel } from './shortcuts'
 import { textBoxDimensions } from './ui/text'
 import type { Background, Dock } from './ui/tools'
 import './styles.css'
@@ -108,6 +110,7 @@ function Board() {
   const resetPreviews = useRef<(() => void) | null>(null)
   const textDraftRef = useRef<TextDraft | null>(null)
   const equationDraftRef = useRef<EquationDraft | null>(null)
+  const shortcutsOpenRef = useRef(false)
   const presentingRef = useRef(false)
   const pointerEffectRef = useRef<PointerEffect>(null)
   const presentationBar = useRef<HTMLDivElement>(null)
@@ -117,6 +120,7 @@ function Board() {
   const [activeFrame, setActiveFrame] = useState<string | null>(null)
   const [textDraft, setTextDraft] = useState<TextDraft | null>(null)
   const [equationDraft, setEquationDraft] = useState<EquationDraft | null>(null)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [presenting, setPresenting] = useState(false)
   const [showPresentationBar, setShowPresentationBar] = useState(false)
   const [pointerEffect, setPointerEffect] = useState<PointerEffect>(null)
@@ -128,6 +132,11 @@ function Board() {
   const [pwaState, setPwaState] = useState<PwaState>({ offline: 'loading', canInstall: false, updateAvailable: false })
   const [zoom, setZoom] = useState(1)
   const { tool, stabilizer, zoomRequiresCtrl, dock, background, favorite, favorites } = useSettings()
+
+  function showShortcuts(open: boolean) {
+    shortcutsOpenRef.current = open
+    setShortcutsOpen(open)
+  }
 
   function openTextEditor(request: { point: Point; screen: Point; object?: TextObject; parentId?: string }) {
     const board = controller.current
@@ -545,59 +554,40 @@ function Board() {
 
     function handleShortcut(event: KeyboardEvent) {
       const target = event.target
-      if (event.defaultPrevented || event.repeat && event.key.toLowerCase() === 'n' ||
+      if (event.defaultPrevented || shortcutsOpenRef.current ||
         isTextEntry(target) || target instanceof HTMLElement && target.matches('select')) return
 
-      if (event.ctrlKey || event.metaKey) {
-        switch (event.key.toLowerCase()) {
-          case 'a': useSettings.setState({ tool: 'select' }); board.selectAll(); break
-          case 'z': changeHistory(event.shiftKey ? 'redo' : 'undo'); break
-          case 'y': changeHistory('redo'); break
-          case 's': saveFile(event.shiftKey); break
-          case 'o': openFile(); break
-          case 'd': if (!board.getSelection().length) return; board.duplicateSelection(); break
-          case 'c': if (!board.getSelection().length) return; copySelection(); break
-          case 'x':
-            if (!board.getSelection().length) return
-            copySelection(true)
-            break
-          default: return
-        }
-        event.preventDefault()
-        return
-      }
-
-      if (event.altKey) {
-        if (!board.getSelection().length) return
-        switch (event.key) {
-          case 'ArrowLeft': board.moveSelection(-8, 0); break
-          case 'ArrowRight': board.moveSelection(8, 0); break
-          case 'ArrowUp': board.moveSelection(0, -8); break
-          case 'ArrowDown': board.moveSelection(0, 8); break
-          case '+':
-          case '=': scaleSelection(1.1); break
-          case '-': scaleSelection(1 / 1.1); break
-          default: return
-        }
-        event.preventDefault()
-        return
-      }
-
-      const key = event.key.toLowerCase()
-      const toolShortcut = [...tools, ...shapeTools].find((option) => option.key.toLowerCase() === key)
+      const action = findShortcut(event, 'board')
+      if (!action) return
+      const toolShortcut = [...tools, ...shapeTools].find(({ id }) => action === `tool-${id}`)
       if (toolShortcut) {
-        if (toolShortcut.id === 'equation' && event.repeat) return
         chooseTool(toolShortcut.id)
         event.preventDefault()
         return
       }
-      if (/^[1-6]$/.test(key)) {
-        pickFavorite(Number(key) - 1)
+      if (action.startsWith('favorite-')) {
+        pickFavorite(Number(action.slice('favorite-'.length)) - 1)
         event.preventDefault()
         return
       }
-      switch (key) {
-        case 'delete': if (board.getSelection().length) board.deleteSelection(); else return; break
+      const hasSelection = board.getSelection().length > 0
+      switch (action) {
+        case 'select-all': useSettings.setState({ tool: 'select' }); board.selectAll(); break
+        case 'undo': changeHistory('undo'); break
+        case 'redo': changeHistory('redo'); break
+        case 'save': saveFile(); break
+        case 'save-as': saveFile(true); break
+        case 'open-board': openFile(); break
+        case 'duplicate': if (!hasSelection) return; board.duplicateSelection(); break
+        case 'copy': if (!hasSelection) return; copySelection(); break
+        case 'cut': if (!hasSelection) return; copySelection(true); break
+        case 'nudge-left': if (!hasSelection) return; board.moveSelection(-8, 0); break
+        case 'nudge-right': if (!hasSelection) return; board.moveSelection(8, 0); break
+        case 'nudge-up': if (!hasSelection) return; board.moveSelection(0, -8); break
+        case 'nudge-down': if (!hasSelection) return; board.moveSelection(0, 8); break
+        case 'scale-up': if (!hasSelection) return; scaleSelection(1.1); break
+        case 'scale-down': if (!hasSelection) return; scaleSelection(1 / 1.1); break
+        case 'delete': if (!hasSelection) return; board.deleteSelection(); break
         case 'escape':
           board.clearSelection()
           if (presentingRef.current) setPresentation(false)
@@ -605,16 +595,16 @@ function Board() {
           if (useSettings.getState().tool === 'frame') useSettings.setState({ tool: 'pen' })
           frameName.current = ''
           break
-        case 'i': if (event.repeat) return; openAsset('image/*'); break
-        case 'd': if (event.repeat) return; openAsset('application/pdf,.pdf'); break
-        case 'n': createFrame(); break
-        case 'g': {
+        case 'open-image': openAsset('image/*'); break
+        case 'open-pdf': openAsset('application/pdf,.pdf'); break
+        case 'new-frame': createFrame(); break
+        case 'background': {
           const options = Object.keys(backgrounds) as Background[]
           const index = options.indexOf(useSettings.getState().background)
           useSettings.setState({ background: options[(index + 1) % options.length] })
           break
         }
-        case 'u': {
+        case 'lock-page': {
           const selected = board.getSelection().find((object) => object.type === 'pdfPage')
           const currentFrame = frameId.current && scene.get(frameId.current)
           const linkedPage = currentFrame && currentFrame.type === 'frame' && currentFrame.parentId
@@ -624,31 +614,31 @@ function Board() {
           setPageLocked(page)
           break
         }
-        case 'arrowleft':
-        case 'arrowup': if (!listFrames().length) return; stepFrame(-1); break
-        case 'arrowright':
-        case 'arrowdown': if (!listFrames().length) return; stepFrame(1); break
-        case 'enter':
+        case 'frame-prev': if (!listFrames().length) return; stepFrame(-1); break
+        case 'frame-next': if (!listFrames().length) return; stepFrame(1); break
+        case 'fit-frame':
           if (!frameId.current || target instanceof HTMLElement && target.closest('button, summary, a')) return
           moveToFrame()
           break
-        case 'j': exportBoard('png'); break
-        case 'f': if (event.repeat) return; setPresentation(!presentingRef.current); break
-        case 'k': if (event.repeat) return; togglePointerEffect('laser'); break
-        case 's': if (event.repeat) return; togglePointerEffect('spotlight'); break
-        case 'y': if (event.repeat) return; exportBoard(event.shiftKey ? 'all' : 'frames'); break
-        case 'r': if (!board.getSelection().length) return; board.rotateSelection(event.shiftKey ? -15 : 15); break
-        case '+':
-        case '=': board.zoomBy(1.2); break
-        case '-': board.zoomBy(1 / 1.2); break
-        case '0': board.setCamera({ x: 0, y: 0, zoom: 1 }); break
+        case 'png': exportBoard('png'); break
+        case 'presentation': setPresentation(!presentingRef.current); break
+        case 'laser': togglePointerEffect('laser'); break
+        case 'spotlight': togglePointerEffect('spotlight'); break
+        case 'pdf-frames': exportBoard('frames'); break
+        case 'pdf-all': exportBoard('all'); break
+        case 'rotate-right': if (!hasSelection) return; board.rotateSelection(15); break
+        case 'rotate-left': if (!hasSelection) return; board.rotateSelection(-15); break
+        case 'zoom-in': board.zoomBy(1.2); break
+        case 'zoom-out': board.zoomBy(1 / 1.2); break
+        case 'zoom-reset': board.setCamera({ x: 0, y: 0, zoom: 1 }); break
+        case 'open-shortcuts': showShortcuts(true); break
         default: return
       }
       event.preventDefault()
     }
 
     function handlePaste(event: ClipboardEvent) {
-      if (fileOperation.current || !documentRef.current) return
+      if (fileOperation.current || !documentRef.current || shortcutsOpenRef.current) return
       if (isTextEntry(event.target)) return
       const files = Array.from(event.clipboardData?.files ?? [])
       if (files.length) { event.preventDefault(); importAssets(files); return }
@@ -733,12 +723,15 @@ function Board() {
             <button type="button" disabled={fileBusy || !isReady} onClick={() => openFile(true)}>Abrir via upload</button>
             <button type="button" disabled={fileBusy || !isReady} onClick={() => saveFile(true)}>Baixar cópia</button>
             <hr />
-            <button type="button" disabled={fileBusy || !isReady} onClick={() => openAsset('image/*')} title="I">Inserir imagem</button>
-            <button type="button" disabled={fileBusy || !isReady} onClick={() => openAsset('application/pdf,.pdf')} title="D">Importar PDF</button>
+            <button type="button" disabled={fileBusy || !isReady} onClick={() => openAsset('image/*')} title={shortcutLabel('open-image')}>Inserir imagem</button>
+            <button type="button" disabled={fileBusy || !isReady} onClick={() => openAsset('application/pdf,.pdf')} title={shortcutLabel('open-pdf')}>Importar PDF</button>
             <hr />
-            <button type="button" disabled={fileBusy || !frames.length} onClick={() => exportBoard('frames')} title="Y">Exportar quadros em PDF</button>
-            <button type="button" disabled={fileBusy || !isReady} onClick={() => exportBoard('all')} title="Shift+Y">Exportar tudo em PDF</button>
-            <button type="button" disabled={fileBusy || !activeFrame} onClick={() => exportBoard('png')} title="J">Exportar quadro em PNG</button>
+            <button type="button" disabled={fileBusy || !frames.length} onClick={() => exportBoard('frames')} title={shortcutLabel('pdf-frames')}>Exportar quadros em PDF</button>
+            <button type="button" disabled={fileBusy || !isReady} onClick={() => exportBoard('all')} title={shortcutLabel('pdf-all')}>Exportar tudo em PDF</button>
+            <button type="button" disabled={fileBusy || !activeFrame} onClick={() => exportBoard('png')} title={shortcutLabel('png')}>Exportar quadro em PNG</button>
+            <hr />
+            <button type="button" aria-haspopup="dialog" aria-keyshortcuts={shortcutAria('open-shortcuts')}
+              title={shortcutLabel('open-shortcuts')} onClick={() => showShortcuts(true)}>Atalhos</button>
           </div>
         </details>
         <input ref={fileInput} hidden type="file" accept=".board,application/zip"
@@ -755,27 +748,27 @@ function Board() {
           importAssets(files)
         }} />
         <div className="history-group" role="group" aria-label="Histórico">
-          <button type="button" aria-label="Desfazer" title="Desfazer (Ctrl+Z)" disabled={!history.undo || fileBusy}
+          <button type="button" aria-label="Desfazer" title={`Desfazer (${shortcutLabel('undo')})`} disabled={!history.undo || fileBusy}
             onClick={() => changeHistory('undo')}>↶</button>
-          <button type="button" aria-label="Refazer" title="Refazer (Ctrl+Y)" disabled={!history.redo || fileBusy}
+          <button type="button" aria-label="Refazer" title={`Refazer (${shortcutLabel('redo')})`} disabled={!history.redo || fileBusy}
             onClick={() => changeHistory('redo')}>↷</button>
         </div>
         <details className="file-menu">
           <summary title="Ações da seleção">Editar</summary>
           <div className="file-actions">
-            <button type="button" disabled={!selection.length} onClick={() => copySelection()} title="Ctrl+C">Copiar</button>
-            <button type="button" disabled={!selection.length} onClick={() => copySelection(true)} title="Ctrl+X">Recortar</button>
-            <button type="button" onClick={() => controller.current?.pasteSelection()} title="Ctrl+V">Colar seleção</button>
-            <button type="button" disabled={!selection.length} onClick={() => controller.current?.duplicateSelection()} title="Ctrl+D">Duplicar</button>
-            <button type="button" disabled={!selection.length} onClick={() => controller.current?.rotateSelection(15)} title="R">Girar 15°</button>
-            <button type="button" disabled={!selection.length} onClick={() => controller.current?.deleteSelection()} title="Delete">Excluir</button>
+            <button type="button" disabled={!selection.length} onClick={() => copySelection()} title={shortcutLabel('copy')}>Copiar</button>
+            <button type="button" disabled={!selection.length} onClick={() => copySelection(true)} title={shortcutLabel('cut')}>Recortar</button>
+            <button type="button" onClick={() => controller.current?.pasteSelection()} title={shortcutLabel('paste')}>Colar seleção</button>
+            <button type="button" disabled={!selection.length} onClick={() => controller.current?.duplicateSelection()} title={shortcutLabel('duplicate')}>Duplicar</button>
+            <button type="button" disabled={!selection.length} onClick={() => controller.current?.rotateSelection(15)} title={shortcutLabel('rotate-right')}>Girar 15°</button>
+            <button type="button" disabled={!selection.length} onClick={() => controller.current?.deleteSelection()} title={shortcutLabel('delete')}>Excluir</button>
           </div>
         </details>
         <details className="file-menu">
           <summary>Quadros</summary>
           <div className="file-actions frame-actions">
-            <button type="button" disabled={!isReady || fileBusy} onClick={createFrame} title="N">Criar quadro 16:9</button>
-            <button type="button" disabled={!activeFrame} onClick={() => moveToFrame()} title="Enter">Enquadrar quadro</button>
+            <button type="button" disabled={!isReady || fileBusy} onClick={createFrame} title={shortcutLabel('new-frame')}>Criar quadro 16:9</button>
+            <button type="button" disabled={!activeFrame} onClick={() => moveToFrame()} title={shortcutLabel('fit-frame')}>Enquadrar quadro</button>
             <label className="check-option"><input type="checkbox" defaultChecked onChange={(event) => { createPdfFrames.current = event.target.checked }} />Criar um quadro por página de PDF</label>
             {pdfPages.length > 0 && <div className="pdf-page-actions" aria-label="Páginas PDF">
               {pdfPages.map((page, index) => <button key={page.id} type="button" onClick={() => setPageLocked(page)}>
@@ -785,11 +778,11 @@ function Board() {
           </div>
         </details>
         <label className="background-setting">Fundo
-          <select value={background} title="Alternar fundo (G)" onChange={(event) => useSettings.setState({ background: event.target.value as Background })}>
+          <select value={background} title={`Alternar fundo (${shortcutLabel('background')})`} onChange={(event) => useSettings.setState({ background: event.target.value as Background })}>
             {Object.entries(backgrounds).map(([value, name]) => <option key={value} value={value}>{name}</option>)}
           </select>
         </label>
-        <button type="button" aria-keyshortcuts="F" title="Apresentar (F)" onClick={() => setPresentation(true)}>Apresentar</button>
+        <button type="button" aria-keyshortcuts={shortcutAria('presentation')} title={`Apresentar (${shortcutLabel('presentation')})`} onClick={() => setPresentation(true)}>Apresentar</button>
         <div className="stabilizer">
           <label htmlFor="stabilizer">Estabilizador</label>
           <input id="stabilizer" type="range" min="0" max="100" value={stabilizer}
@@ -799,10 +792,10 @@ function Board() {
       </header>
 
       {presenting && showPresentationBar && <div className="presentation-bar" ref={presentationBar} role="toolbar" aria-label="Apresentação">
-        <button type="button" aria-keyshortcuts="F" onClick={() => setPresentation(false)}>Sair da apresentação</button>
-        <button type="button" aria-keyshortcuts="K" aria-pressed={pointerEffect === 'laser'} onClick={() => togglePointerEffect('laser')}>Laser</button>
-        <button type="button" aria-keyshortcuts="S" aria-pressed={pointerEffect === 'spotlight'} onClick={() => togglePointerEffect('spotlight')}>Spotlight</button>
-        {activeFrame && <button type="button" aria-keyshortcuts="Enter" onClick={() => moveToFrame()}>Enquadrar quadro</button>}
+        <button type="button" aria-keyshortcuts={shortcutAria('presentation')} onClick={() => setPresentation(false)}>Sair da apresentação</button>
+        <button type="button" aria-keyshortcuts={shortcutAria('laser')} aria-pressed={pointerEffect === 'laser'} onClick={() => togglePointerEffect('laser')}>Laser</button>
+        <button type="button" aria-keyshortcuts={shortcutAria('spotlight')} aria-pressed={pointerEffect === 'spotlight'} onClick={() => togglePointerEffect('spotlight')}>Spotlight</button>
+        {activeFrame && <button type="button" aria-keyshortcuts={shortcutAria('fit-frame')} onClick={() => moveToFrame()}>Enquadrar quadro</button>}
       </div>}
 
       <div className={`workspace dock-${dock}`}>
@@ -833,11 +826,11 @@ function Board() {
 
       <footer className="status-bar">
         {frames.length > 0 && <div className="frame-navigation" role="group" aria-label="Navegar pelos quadros">
-          <button type="button" aria-label="Quadro anterior" title="Seta para esquerda" onClick={() => stepFrame(-1)}>‹</button>
+          <button type="button" aria-label="Quadro anterior" title={shortcutLabel('frame-prev')} onClick={() => stepFrame(-1)}>‹</button>
           <select aria-label="Quadro atual" value={activeFrame ?? ''} onChange={(event) => moveToFrame(event.target.value)}>
             {frames.map(({ id, props }) => <option key={id} value={id}>{props.name}</option>)}
           </select>
-          <button type="button" aria-label="Próximo quadro" title="Seta para direita" onClick={() => stepFrame(1)}>›</button>
+          <button type="button" aria-label="Próximo quadro" title={shortcutLabel('frame-next')} onClick={() => stepFrame(1)}>›</button>
         </div>}
         <div className="document-status" role="status" data-save-status={saveStatus}>
           {message || ({ saved: 'Salvo neste navegador', saving: 'Salvando…',
@@ -862,12 +855,13 @@ function Board() {
         <div className="zoom-group" role="group" aria-label="Zoom">
           <button type="button" aria-label="Diminuir zoom" onClick={() => controller.current?.zoomBy(1 / 1.2)}>−</button>
           <button type="button" aria-label="Voltar à origem e ao zoom de 100%"
-            title="Voltar à origem (0)" onClick={() => controller.current?.setCamera({ x: 0, y: 0, zoom: 1 })}>
+            title={`Voltar à origem (${shortcutLabel('zoom-reset')})`} onClick={() => controller.current?.setCamera({ x: 0, y: 0, zoom: 1 })}>
             {Math.round(zoom * 100)}%
           </button>
           <button type="button" aria-label="Aumentar zoom" onClick={() => controller.current?.zoomBy(1.2)}>+</button>
         </div>
       </footer>
+      <ShortcutsPanel open={shortcutsOpen} onClose={() => showShortcuts(false)} />
     </main>
   )
 }

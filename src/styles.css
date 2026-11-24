@@ -226,6 +226,81 @@ button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-vi
   background: #f5f6f8;
 }
 .equation-actions button[type='submit']:enabled { color: #fff; background: var(--accent); }
+
+.shortcuts-panel {
+  width: min(36rem, calc(100vw - 2rem));
+  max-height: min(38rem, calc(100dvh - 2rem));
+  padding: 0;
+  color: #192038;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px #19203833;
+  overflow: hidden;
+}
+.shortcuts-panel[open] { display: flex; flex-direction: column; }
+.shortcuts-panel::backdrop { background: #19203866; }
+.shortcuts-header {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.shortcuts-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.shortcuts-title h2 { margin: 0; font-size: 1.15rem; }
+.shortcuts-title button {
+  flex: none;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  font-size: .875rem;
+  font-weight: 630;
+}
+.shortcuts-title button:hover { background: #e8ebf2; }
+.shortcuts-search { display: grid; gap: 5px; font-size: .875rem; font-weight: 620; }
+.shortcuts-search input {
+  width: 100%;
+  min-height: 42px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: #192038;
+  font-size: 1rem;
+  font-weight: 400;
+}
+.shortcuts-results { min-height: 0; overflow-y: auto; padding: 14px 18px; }
+.shortcuts-results:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.shortcut-group + .shortcut-group { margin-top: 16px; }
+.shortcut-group h3 { margin: 0 0 4px; color: var(--muted); font-size: .875rem; }
+.shortcut-group ul { list-style: none; margin: 0; padding: 0; }
+.shortcut-group li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  flex-wrap: wrap;
+  min-height: 38px;
+  padding-block: 5px;
+  border-bottom: 1px solid var(--line);
+  font-size: .9375rem;
+}
+.shortcut-keys { display: flex; gap: 4px; flex-wrap: wrap; }
+.shortcut-keys kbd {
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #f5f6f8;
+  font: 600 .8125rem/1.35 system-ui, 'Segoe UI', sans-serif;
+}
+.shortcuts-empty { margin: 0; color: var(--muted); font-size: .9375rem; }
+
 .dock-bottom .tool-settings-body { bottom: 100%; top: auto; }
 .dock-left .tool-settings-body { left: 100%; top: 0; }
 .dock-right .tool-settings-body { right: 100%; top: 0; }

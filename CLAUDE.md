@@ -1,5 +1,10 @@
 # Whiteboard project notes
 
+## Shortcut registry
+
+- Define key bindings and their Portuguese descriptions in `src/shortcuts/index.ts`. Keyboard handlers look up an action by scope. The shortcuts panel and UI hints read the same registry. Keep the browser's native paste event for clipboard files.
+- Equation editing is a pure source and selection transform in `src/equations/editing.ts`. The control restores the caret after applying a transform. Template and symbol entries in the shortcuts panel use the editing maps. The renderer receives the resulting LaTeX as entered.
+
 ## Scope and workflow
 
 - The functionality-first brief supersedes the older milestones below. Complete one stage, run the production build and unit tests for new logic, publish to GitHub Pages, and update the Brazilian Portuguese `CHANGELOG.md`. Stop after delivery and wait for classroom feedback. Performance work starts with an observed classroom issue.

@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { EquationPath, Point } from '../core/types'
+import { editLatex } from '../equations/editing'
+import { findShortcut } from '../shortcuts'
 
 interface VectorPreview {
   width: number
@@ -24,11 +26,12 @@ async function readVector(source: string, fontSize: number): Promise<VectorPrevi
 
 export function EquationEditor({ initialSource, position, color, fontSize, onInsert, onCancel }: Props) {
   const field = useRef<HTMLInputElement>(null)
+  const pendingSelection = useRef<{ start: number; end: number } | null>(null)
   const alive = useRef(true)
   const [source, setSource] = useState(initialSource)
   const [preview, setPreview] = useState<{ source: string; vector?: VectorPreview; error?: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const latex = source.trim()
+  const hasSource = Boolean(source.trim())
 
   useEffect(() => {
     field.current?.focus()
@@ -38,31 +41,37 @@ export function EquationEditor({ initialSource, position, color, fontSize, onIns
   }, [initialSource])
 
   useEffect(() => {
-    if (!latex) return
+    if (!hasSource) return
     let cancelled = false
-    void readVector(latex, fontSize).then((vector) => {
-      if (!cancelled) setPreview({ source: latex, vector })
+    void readVector(source, fontSize).then((vector) => {
+      if (!cancelled) setPreview({ source, vector })
     }).catch(() => {
-      if (!cancelled) setPreview({ source: latex, error: 'Confira o código LaTeX.' })
+      if (!cancelled) setPreview({ source, error: 'Confira o código LaTeX.' })
     })
     return () => { cancelled = true }
-  }, [latex, fontSize])
+  }, [source, hasSource, fontSize])
 
-  const current = preview?.source === latex ? preview : null
+  useLayoutEffect(() => {
+    const selection = pendingSelection.current
+    if (selection) field.current?.setSelectionRange(selection.start, selection.end)
+    pendingSelection.current = null
+  }, [source])
+
+  const current = preview?.source === source ? preview : null
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (!latex || submitting || current?.error) return
+    if (!hasSource || submitting || current?.error) return
     if (current?.vector) {
-      onInsert(latex, current.vector)
+      onInsert(source, current.vector)
       return
     }
     setSubmitting(true)
     try {
-      const vector = await readVector(latex, fontSize)
-      if (alive.current) onInsert(latex, vector)
+      const vector = await readVector(source, fontSize)
+      if (alive.current) onInsert(source, vector)
     } catch {
-      if (alive.current) setPreview({ source: latex, error: 'Confira o código LaTeX.' })
+      if (alive.current) setPreview({ source, error: 'Confira o código LaTeX.' })
     } finally {
       if (alive.current) setSubmitting(false)
     }
@@ -72,12 +81,27 @@ export function EquationEditor({ initialSource, position, color, fontSize, onIns
     style={{ left: position.x, top: position.y }} onSubmit={(event) => { void submit(event) }}
     onKeyDown={(event) => {
       if (event.nativeEvent.isComposing) return
-      if (event.key === 'Escape') {
+      const action = findShortcut(event, 'equation')
+      if (action === 'equation-cancel') {
         event.preventDefault()
         onCancel()
-      } else if (event.key === 'Enter' && event.target === field.current) {
+        return
+      }
+      const input = field.current
+      if (!input || event.target !== input) return
+      if (action === 'equation-save') {
         event.preventDefault()
         event.currentTarget.requestSubmit()
+      }
+      if (submitting || (action !== 'equation-expand' && action !== 'equation-typing')) return
+      const edit = editLatex(source, input.selectionStart ?? source.length, input.selectionEnd ?? source.length, event.key)
+      if (!edit || edit.value.length > input.maxLength) return
+      event.preventDefault()
+      if (edit.value === source) {
+        input.setSelectionRange(edit.start, edit.end)
+      } else {
+        pendingSelection.current = { start: edit.start, end: edit.end }
+        setSource(edit.value)
       }
     }}>
     <label htmlFor="equation-source">LaTeX</label>
@@ -85,16 +109,16 @@ export function EquationEditor({ initialSource, position, color, fontSize, onIns
       autoComplete="off" placeholder="2x = 10 ou \frac{1}{2}" value={source}
       readOnly={submitting} onChange={(event) => setSource(event.target.value)} />
     <div className="equation-preview" aria-live="polite">
-      {current?.vector ? <svg role="img" aria-label={`Prévia de ${latex}`} style={{ color }}
+      {current?.vector ? <svg role="img" aria-label={`Prévia de ${source}`} style={{ color }}
         width={current.vector.width * 24 / fontSize} height={current.vector.height * 24 / fontSize}
         viewBox={`0 0 ${current.vector.width} ${current.vector.height}`}>
         {current.vector.paths.map(({ d, transform }, index) =>
           <path key={index} d={d} transform={`matrix(${transform.join(' ')})`} fill="currentColor" />)}
-      </svg> : <span>{current?.error ?? (latex ? 'Preparando prévia…' : 'A prévia aparece aqui.')}</span>}
+      </svg> : <span>{current?.error ?? (hasSource ? 'Preparando prévia…' : 'A prévia aparece aqui.')}</span>}
     </div>
     <div className="equation-actions">
       <button type="button" onClick={onCancel}>Cancelar</button>
-      <button disabled={!latex || Boolean(current?.error) || submitting} type="submit">{initialSource ? 'Salvar' : 'Inserir'}</button>
+      <button disabled={!hasSource || Boolean(current?.error) || submitting} type="submit">{initialSource ? 'Salvar' : 'Inserir'}</button>
     </div>
   </form>
 }
