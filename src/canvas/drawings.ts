@@ -1,7 +1,8 @@
 import { shapeArrowHead } from "../core/shapes";
-import type { ShapeObject, TextObject } from "../core/types";
+import type { EquationObject, ShapeObject, TextObject } from "../core/types";
 
 export const TEXT_LINE_HEIGHT = 1.25;
+const equationPaths = new WeakMap<EquationObject["props"]["paths"], readonly Path2D[]>();
 
 function shapePath(shape: ShapeObject): Path2D {
   const path = new Path2D();
@@ -55,4 +56,21 @@ export function drawTextObject(context: CanvasRenderingContext2D, object: TextOb
   text.split("\n").forEach((line, index) => {
     context.fillText(line, 0, fontSize * (1 + TEXT_LINE_HEIGHT * index));
   });
+}
+
+export function drawEquationObject(context: CanvasRenderingContext2D, object: EquationObject, color: string): void {
+  const { paths } = object.props;
+  let geometry = equationPaths.get(paths);
+  if (!geometry) {
+    geometry = paths.map(({ d }) => new Path2D(d));
+    equationPaths.set(paths, geometry);
+  }
+
+  context.fillStyle = color;
+  for (const [index, path] of geometry.entries()) {
+    context.save();
+    context.transform(...paths[index]!.transform);
+    context.fill(path);
+    context.restore();
+  }
 }

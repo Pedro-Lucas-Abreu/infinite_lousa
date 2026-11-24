@@ -103,7 +103,25 @@ export interface ShapeObject extends ObjectBase {
   };
 }
 
-export type BoardObject = Stroke | PageObject | FrameObject | TextObject | ShapeObject;
+export interface EquationPath {
+  readonly d: string;
+  readonly transform: Affine;
+}
+
+export interface EquationObject extends ObjectBase {
+  readonly type: "equation";
+  readonly parentId?: string;
+  readonly props: {
+    readonly latex: string;
+    readonly width: number;
+    readonly height: number;
+    readonly color: string;
+    readonly fontSize: number;
+    readonly paths: readonly EquationPath[];
+  };
+}
+
+export type BoardObject = Stroke | PageObject | FrameObject | TextObject | ShapeObject | EquationObject;
 
 export interface BoardChange {
   readonly before?: BoardObject;

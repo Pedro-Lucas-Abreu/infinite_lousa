@@ -5,7 +5,7 @@ import { BoardController } from './canvas/controller'
 import type { BoardTool, BrushStyle } from './canvas/controller'
 import { screenToWorld } from './core/camera'
 import { objectBounds, Scene } from './core/scene'
-import type { BoardChange, BoardObject, FrameObject, PageObject, Point, TextObject } from './core/types'
+import type { BoardChange, BoardObject, EquationObject, EquationPath, FrameObject, PageObject, Point, TextObject } from './core/types'
 import { BoardDocument } from './documents/store'
 import { decodeFromFile, openBoardFile, saveBoardFile } from './documents/files'
 import { registerPwa } from './pwa/register'
@@ -20,6 +20,7 @@ import { ImagePreviews, importImage } from './ui/assets'
 import { fitCamera, framesForPages } from './ui/frames'
 import { backgrounds, initialFavorites, shapeTools, tools, Tools } from './ui/tools'
 import { TextEditor } from './ui/text-editor'
+import { EquationEditor } from './ui/equation-editor'
 import { textBoxDimensions } from './ui/text'
 import type { Background, Dock } from './ui/tools'
 import './styles.css'
@@ -42,6 +43,17 @@ interface TextDraft {
   object?: TextObject
   parentId?: string
 }
+
+interface EquationDraft {
+  position: Point
+  origin: Point
+  color: string
+  fontSize: number
+  object?: EquationObject
+  parentId?: string
+}
+
+type PointerEffect = 'laser' | 'spotlight' | null
 
 const useSettings = create<BoardSettings>(() => ({
   tool: 'pen',
@@ -95,11 +107,19 @@ function Board() {
   const createPdfFrames = useRef(true)
   const resetPreviews = useRef<(() => void) | null>(null)
   const textDraftRef = useRef<TextDraft | null>(null)
+  const equationDraftRef = useRef<EquationDraft | null>(null)
+  const presentingRef = useRef(false)
+  const pointerEffectRef = useRef<PointerEffect>(null)
+  const presentationBar = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState<readonly BoardObject[]>([])
   const [frames, setFrames] = useState<readonly FrameObject[]>([])
   const [pdfPages, setPdfPages] = useState<readonly PageObject[]>([])
   const [activeFrame, setActiveFrame] = useState<string | null>(null)
   const [textDraft, setTextDraft] = useState<TextDraft | null>(null)
+  const [equationDraft, setEquationDraft] = useState<EquationDraft | null>(null)
+  const [presenting, setPresenting] = useState(false)
+  const [showPresentationBar, setShowPresentationBar] = useState(false)
+  const [pointerEffect, setPointerEffect] = useState<PointerEffect>(null)
   const [saveStatus, setSaveStatus] = useState<SaveStatus | 'recovering'>('recovering')
   const [isReady, setIsReady] = useState(false)
   const [message, setMessage] = useState('')
@@ -111,7 +131,7 @@ function Board() {
 
   function openTextEditor(request: { point: Point; screen: Point; object?: TextObject; parentId?: string }) {
     const board = controller.current
-    if (!board || !documentRef.current || fileOperation.current || textDraftRef.current) return
+    if (!board || !documentRef.current || fileOperation.current || textDraftRef.current || equationDraftRef.current) return
     const { point, screen, object, parentId } = request
     const viewport = board.getViewport()
     const settings = useSettings.getState()
@@ -124,6 +144,75 @@ function Board() {
     }
     textDraftRef.current = value
     setTextDraft(value)
+  }
+
+  function openEquationEditor(request: { point: Point; screen: Point; object?: EquationObject; parentId?: string }) {
+    const board = controller.current
+    if (!board || !documentRef.current || fileOperation.current || textDraftRef.current || equationDraftRef.current) return
+    const { point, screen, object, parentId } = request
+    const viewport = board.getViewport()
+    const settings = useSettings.getState()
+    const draft: EquationDraft = {
+      position: { x: Math.max(8, Math.min(screen.x, viewport.width - 338)), y: Math.max(8, Math.min(screen.y, viewport.height - 208)) },
+      origin: point,
+      fontSize: object?.props.fontSize ?? 29 / board.getCamera().zoom,
+      color: object?.props.color ?? settings.favorites[settings.favorite].color,
+      object, parentId,
+    }
+    equationDraftRef.current = draft
+    setEquationDraft(draft)
+  }
+
+  function closeEquationEditor() {
+    equationDraftRef.current = null
+    setEquationDraft(null)
+    liveCanvas.current?.focus({ preventScroll: true })
+  }
+
+  function commitEquation(latex: string, vector: { width: number; height: number; paths: readonly EquationPath[] }) {
+    const draft = equationDraftRef.current
+    const scene = sceneRef.current
+    if (!draft || !scene) return
+    closeEquationEditor()
+    const before = draft.object
+    if (before && (scene.get(before.id) !== before || before.props.latex === latex)) return
+    const parentId = draft.parentId && scene.get(draft.parentId)?.type === 'pdfPage' ? draft.parentId : undefined
+    const after: EquationObject = {
+      ...(before ?? { id: crypto.randomUUID(), type: 'equation', locked: false, zIndex: scene.nextZIndex(),
+        transform: [1, 0, 0, 1, draft.origin.x, draft.origin.y] as const,
+        ...(parentId ? { parentId } : {}) }),
+      props: { latex, color: draft.color, fontSize: draft.fontSize, ...vector },
+    }
+    applyChanges([{ before, after }])
+  }
+
+  function chooseTool(next: BoardTool) {
+    updatePointerEffect(null)
+    useSettings.setState({ tool: next })
+    if (next === 'equation') controller.current?.startEquation()
+  }
+
+  function setPresentation(enabled: boolean) {
+    if (enabled && (textDraftRef.current || equationDraftRef.current)) {
+      setMessage('Confirme ou cancele a edição antes de apresentar.')
+      return
+    }
+    presentingRef.current = enabled
+    setPresenting(enabled)
+    setShowPresentationBar(false)
+    controller.current?.setPresentation(enabled)
+    if (!enabled) updatePointerEffect(null)
+    liveCanvas.current?.focus({ preventScroll: true })
+  }
+
+  function updatePointerEffect(next: PointerEffect) {
+    pointerEffectRef.current = next
+    setPointerEffect(next)
+    controller.current?.setPointerEffect(next)
+  }
+
+  function togglePointerEffect(next: NonNullable<PointerEffect>) {
+    updatePointerEffect(pointerEffectRef.current === next ? null : next)
   }
 
   function closeTextEditor() {
@@ -405,6 +494,7 @@ function Board() {
       onInkFrame: (metrics) => benchmark?.recordInk(metrics),
       onSelectionChange: setSelection,
       onTextEdit: openTextEditor,
+      onEquationEdit: openEquationEditor,
       getPageRaster: (page) => {
         const asset = documentRef.current?.asset(page.props.assetId)
         if (!asset) return undefined
@@ -496,7 +586,8 @@ function Board() {
       const key = event.key.toLowerCase()
       const toolShortcut = [...tools, ...shapeTools].find((option) => option.key.toLowerCase() === key)
       if (toolShortcut) {
-        useSettings.setState({ tool: toolShortcut.id })
+        if (toolShortcut.id === 'equation' && event.repeat) return
+        chooseTool(toolShortcut.id)
         event.preventDefault()
         return
       }
@@ -509,6 +600,8 @@ function Board() {
         case 'delete': if (board.getSelection().length) board.deleteSelection(); else return; break
         case 'escape':
           board.clearSelection()
+          if (presentingRef.current) setPresentation(false)
+          else updatePointerEffect(null)
           if (useSettings.getState().tool === 'frame') useSettings.setState({ tool: 'pen' })
           frameName.current = ''
           break
@@ -540,6 +633,9 @@ function Board() {
           moveToFrame()
           break
         case 'j': exportBoard('png'); break
+        case 'f': if (event.repeat) return; setPresentation(!presentingRef.current); break
+        case 'k': if (event.repeat) return; togglePointerEffect('laser'); break
+        case 's': if (event.repeat) return; togglePointerEffect('spotlight'); break
         case 'y': if (event.repeat) return; exportBoard(event.shiftKey ? 'all' : 'frames'); break
         case 'r': if (!board.getSelection().length) return; board.rotateSelection(event.shiftKey ? -15 : 15); break
         case '+':
@@ -567,10 +663,17 @@ function Board() {
       if (event.target instanceof Element && event.target.closest('img, svg, [data-ui-icon]') && !isTextEntry(event.target)) event.preventDefault()
     }
 
+    function handlePresentationEdge(event: PointerEvent) {
+      if (!presentingRef.current || event.pointerType === 'touch' || event.buttons !== 0) return
+      setShowPresentationBar(event.clientY <= 18 || (event.target instanceof Node &&
+        Boolean(presentationBar.current?.contains(event.target))))
+    }
+
     window.addEventListener('keydown', handleShortcut)
     window.addEventListener('paste', handlePaste)
     document.addEventListener('selectstart', blockInterfaceSelection)
     document.addEventListener('dragstart', blockInterfaceDrag)
+    window.addEventListener('pointermove', handlePresentationEdge)
     let unsubscribePwa: (() => void) | undefined
     if (isBenchmark) {
       setIsReady(true)
@@ -607,6 +710,7 @@ function Board() {
       window.removeEventListener('paste', handlePaste)
       document.removeEventListener('selectstart', blockInterfaceSelection)
       document.removeEventListener('dragstart', blockInterfaceDrag)
+      window.removeEventListener('pointermove', handlePresentationEdge)
       images.dispose()
       pdfs.dispose()
       resetPreviews.current = null
@@ -618,7 +722,7 @@ function Board() {
   }, [])
 
   return (
-    <main className="app">
+    <main className={`app${presenting ? ' presenting' : ''}${showPresentationBar ? ' presentation-bar-visible' : ''}`}>
       <header className="toolbar">
         <h1>Lousa</h1>
         <details className="file-menu" ref={fileMenu}>
@@ -685,6 +789,7 @@ function Board() {
             {Object.entries(backgrounds).map(([value, name]) => <option key={value} value={value}>{name}</option>)}
           </select>
         </label>
+        <button type="button" aria-keyshortcuts="F" title="Apresentar (F)" onClick={() => setPresentation(true)}>Apresentar</button>
         <div className="stabilizer">
           <label htmlFor="stabilizer">Estabilizador</label>
           <input id="stabilizer" type="range" min="0" max="100" value={stabilizer}
@@ -693,10 +798,17 @@ function Board() {
         </div>
       </header>
 
+      {presenting && showPresentationBar && <div className="presentation-bar" ref={presentationBar} role="toolbar" aria-label="Apresentação">
+        <button type="button" aria-keyshortcuts="F" onClick={() => setPresentation(false)}>Sair da apresentação</button>
+        <button type="button" aria-keyshortcuts="K" aria-pressed={pointerEffect === 'laser'} onClick={() => togglePointerEffect('laser')}>Laser</button>
+        <button type="button" aria-keyshortcuts="S" aria-pressed={pointerEffect === 'spotlight'} onClick={() => togglePointerEffect('spotlight')}>Spotlight</button>
+        {activeFrame && <button type="button" aria-keyshortcuts="Enter" onClick={() => moveToFrame()}>Enquadrar quadro</button>}
+      </div>}
+
       <div className={`workspace dock-${dock}`}>
         <Tools dock={dock} tool={tool} favorite={favorite} favorites={favorites}
           onDock={(position) => useSettings.setState({ dock: position })}
-          onTool={(next) => useSettings.setState({ tool: next })} onFavorite={pickFavorite} onEditFavorite={editFavorite} />
+          onTool={chooseTool} onFavorite={pickFavorite} onEditFavorite={editFavorite} />
         <section className="surface" aria-label="Área de desenho" aria-busy={!isReady || fileBusy}
           onDragOver={(event) => {
             if (!event.dataTransfer.types.includes('Files')) return
@@ -714,6 +826,8 @@ function Board() {
             aria-label="Lousa interativa" tabIndex={0} />
           {textDraft && <TextEditor initialText={textDraft.object?.props.text ?? ''} position={textDraft.position}
             onCommit={commitText} onCancel={() => { closeTextEditor(); liveCanvas.current?.focus() }} />}
+          {equationDraft && <EquationEditor initialSource={equationDraft.object?.props.latex ?? ''} position={equationDraft.position}
+            fontSize={equationDraft.fontSize} color={equationDraft.color} onInsert={commitEquation} onCancel={closeEquationEditor} />}
         </section>
       </div>
 

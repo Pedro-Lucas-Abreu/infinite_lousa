@@ -1,8 +1,8 @@
-import { drawShape, drawTextObject, TEXT_LINE_HEIGHT } from "../canvas/drawings";
+import { drawEquationObject, drawShape, drawTextObject, TEXT_LINE_HEIGHT } from "../canvas/drawings";
 import { objectBounds, Scene } from "../core/scene";
 import { shapeArrowHead } from "../core/shapes";
 import { strokeOutline } from "../core/stroke";
-import type { Affine, Bounds, FrameObject, PageObject, Point, ShapeObject, Stroke, TextObject } from "../core/types";
+import type { Affine, Bounds, EquationObject, FrameObject, PageObject, Point, ShapeObject, Stroke, TextObject } from "../core/types";
 import type { BoardAsset, PortableBoard } from "../documents/archive";
 import type { PDFDict, PDFDocument, PDFFont, PDFImage, PDFPage } from "@cantoo/pdf-lib";
 import type { PDFDocumentProxy } from "pdfjs-dist";
@@ -136,6 +136,7 @@ export async function exportPng(board: PortableBoard, options: ExportOptions = {
       if (object.type === "stroke") paintStroke(context, object, options.background);
       else if (object.type === "shape") drawShape(context, object, contrastColor(object.props.color, options.background, object.parentId));
       else if (object.type === "text") drawTextObject(context, object, contrastColor(object.props.color, options.background, object.parentId));
+      else if (object.type === "equation") drawEquationObject(context, object, contrastColor(object.props.color, options.background, object.parentId));
       else {
         const [a, b, c, d] = object.transform;
         const edge = Math.ceil(Math.max(object.props.width * Math.hypot(a, b), object.props.height * Math.hypot(c, d)) * scale);
@@ -296,6 +297,17 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
     });
   }
 
+  function vectorEquation(page: PDFPage, object: EquationObject): void {
+    const color = pdf.rgb(...colorComponents(contrastColor(object.props.color, options.background, object.parentId)));
+    for (const path of object.props.paths) {
+      pushTransform(page, path.transform);
+      // drawSvgPath already flips Y. Cancel that flip inside the world transform.
+      page.pushOperators(pdf.concatTransformationMatrix(1, 0, 0, -1, 0, 0));
+      page.drawSvgPath(path.d, { x: 0, y: 0, color });
+      page.pushOperators(pdf.popGraphicsState());
+    }
+  }
+
   async function embedPageOrImage(object: PageObject): Promise<OriginalPage | PDFImage> {
     const asset = findAsset(assets, object);
     if (object.type === "image") return embedRaster(output, asset);
@@ -336,6 +348,7 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
         if (object.type === "stroke") vectorInk(page, object);
         else if (object.type === "shape") vectorShape(page, object);
         else if (object.type === "text") await drawPdfText(page, object);
+        else if (object.type === "equation") vectorEquation(page, object);
         else {
           const { width, height, assetId, pageIndex } = object.props;
           const key = `${assetId}/${object.type === "pdfPage" ? pageIndex ?? 0 : "image"}`;

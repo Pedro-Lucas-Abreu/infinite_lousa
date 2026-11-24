@@ -2,3 +2,7 @@ allowBuilds:
   esbuild: true
 overrides:
   'pdfjs-dist>@napi-rs/canvas': '-'
+  '@mathjax/src>@mathjax/mathjax-newcm-font': '-'
+  '@mathjax/src>mhchemparser': '-'
+  '@mathjax/src>mj-context-menu': '-'
+  '@mathjax/src>speech-rule-engine': '-'

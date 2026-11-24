@@ -6,10 +6,11 @@ import {
   PDFRawStream, rgb, StandardFonts,
 } from "@cantoo/pdf-lib";
 import { createStroke } from "../core/stroke";
-import type { FrameObject, PageObject, ShapeObject, TextObject } from "../core/types";
+import type { EquationObject, FrameObject, PageObject, ShapeObject, TextObject } from "../core/types";
 import type { BoardAsset, PortableBoard } from "../documents/archive";
 import { exportPdf } from "./export";
 import { sourceGeometry } from "./source";
+import { renderEquation } from "../equations/render";
 
 const decoder = new TextDecoder("latin1");
 const unchanged = [1, 0, 0, 1, 0, 0] as const;
@@ -168,6 +169,23 @@ test("exports all five shapes as paths and accented multiline text as PDF text",
   assert.match(content, /1 0 0 -1 0 0 cm\s+q\s+BT/);
   assert.match(content, /1 0 0 1 0 -20 Tm\s+<45717561E7E36F> Tj/i);
   assert.match(content, /1 0 0 1 0 -45 Tm\s+<46756EE7E36F> Tj/i);
+  assert.ok(reopened.context.enumerateIndirectObjects().every(([, object]) =>
+    !(object instanceof PDFRawStream) || object.dict.get(PDFName.of("Subtype")) !== PDFName.of("Image")));
+});
+
+test("exports a rendered equation as filled vector paths, including its fraction bar", async () => {
+  const latex = String.raw`\frac{\alpha + x^2}{\sqrt{y}}`;
+  const geometry = await renderEquation(latex, 40);
+  const equation: EquationObject = {
+    id: "equation", type: "equation", transform: unchanged, locked: false, zIndex: 0,
+    props: { latex, color: "#193050", fontSize: 40, ...geometry },
+  };
+  const pdf = await exportPdf({ scene: { version: 1, objects: [equation] }, assets: [] });
+  const reopened = await PDFDocument.load(pdf.bytes);
+  const content = pageStreams(reopened, 0);
+  assert.equal((content.match(/^f$/gm) ?? []).length, geometry.paths.length + 1);
+  assert.match(content, / c(?:\r?\n|\s)/);
+  assert.ok(geometry.paths.some(({ d }) => / H .* V .* H .* Z$/.test(d)));
   assert.ok(reopened.context.enumerateIndirectObjects().every(([, object]) =>
     !(object instanceof PDFRawStream) || object.dict.get(PDFName.of("Subtype")) !== PDFName.of("Image")));
 });

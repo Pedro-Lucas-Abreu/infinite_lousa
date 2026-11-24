@@ -35,6 +35,28 @@ button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-vi
   overflow: hidden;
 }
 
+.app.presenting { grid-template-rows: minmax(0, 1fr); }
+.app.presenting.presentation-bar-visible { grid-template-rows: auto minmax(0, 1fr); }
+.presenting > .toolbar, .presenting > .status-bar, .presenting .drawing-tools { display: none; }
+.presentation-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  background: #ecf0f6;
+  border-bottom: 1px solid var(--line);
+}
+.presentation-bar button {
+  padding: 5px 10px;
+  min-height: 37px;
+  color: #192038;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  font-size: .875rem;
+}
+.presentation-bar button:hover, .presentation-bar button[aria-pressed='true'] { background: #e4e8ff; }
+
 .toolbar, .status-bar {
   display: flex;
   align-items: center;
@@ -172,6 +194,38 @@ button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-vi
   font: 18px/1.25 Arial, sans-serif;
   resize: vertical;
 }
+.board-equation-editor {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  gap: 6px;
+  width: min(330px, calc(100% - 16px));
+  padding: 10px;
+  background: #fff;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 3px 14px #19203826;
+  font-size: .875rem;
+}
+.board-equation-editor input {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font-family: Consolas, monospace;
+}
+.equation-preview { min-height: 36px; max-height: 100px; overflow: auto; padding: 3px; }
+.equation-preview span { color: var(--muted); }
+.equation-preview svg { display: block; }
+.equation-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.equation-actions button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 4px 8px;
+  background: #f5f6f8;
+}
+.equation-actions button[type='submit']:enabled { color: #fff; background: var(--accent); }
 .dock-bottom .tool-settings-body { bottom: 100%; top: auto; }
 .dock-left .tool-settings-body { left: 100%; top: 0; }
 .dock-right .tool-settings-body { right: 100%; top: 0; }

@@ -8,6 +8,9 @@ import { build } from 'esbuild'
 
 const root = await realpath(fileURLToPath(new URL('..', import.meta.url)))
 const dist = join(root, 'dist')
+const equationAliases = {
+  '#default-font/svg/default.js': '@mathjax/mathjax-stix2-font/js/svg/default.js',
+}
 
 async function exists(path) {
   try { return await realpath(path) } catch (error) {
@@ -41,6 +44,7 @@ async function compile() {
     entryPoints: { main: 'src/main.tsx' },
     entryNames: '[name]-[hash]', chunkNames: '[name]-[hash]',
     splitting: true, jsx: 'automatic',
+    alias: equationAliases,
     define: { 'process.env.NODE_ENV': '"production"', __DOCUMENT_WORKER__: JSON.stringify(workerUrl) },
   })
 
@@ -93,6 +97,14 @@ async function writeNotices(metafiles) {
   const notices = ['# Third-party software notices']
   for (const path of [...packageRoots].sort()) {
     const pkg = JSON.parse(await readFile(join(path, 'package.json'), 'utf8'))
+    if (pkg.name === '@mathjax/mathjax-stix2-font') {
+      notices.push(
+        `## ${pkg.name} ${pkg.version} (Apache-2.0 module code, OFL-1.1 STIX Two glyph data)`,
+        await readFile(join(root, 'node_modules/@mathjax/src/LICENSE'), 'utf8'),
+        await readFile(join(root, 'src/equations/STIX-OFL.txt'), 'utf8'),
+      )
+      continue
+    }
     const licenseFile = (await readdir(path)).find((name) => /^licen[cs]e(?:\.(md|txt))?$/i.test(name))
     if (!licenseFile) throw new Error(`Missing license text for ${pkg.name}.`)
     notices.push(`## ${pkg.name} ${pkg.version} (${pkg.license})`, await readFile(join(path, licenseFile), 'utf8'))
@@ -149,6 +161,7 @@ async function test() {
   const result = await build({
     entryPoints: entries, outdir: join(root, 'test-results', 'unit'),
     bundle: true, platform: 'node', format: 'esm', outExtension: { '.js': '.mjs' },
+    alias: equationAliases,
     metafile: true,
   })
   const outputs = Object.keys(result.metafile.outputs)

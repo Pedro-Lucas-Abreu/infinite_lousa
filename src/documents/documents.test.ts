@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { Zip, ZipDeflate, zipSync } from "fflate";
 import { Scene, objectBounds } from "../core/scene";
 import { createStroke } from "../core/stroke";
-import type { Brush, FrameObject, PageObject, ShapeObject, Stroke, TextObject } from "../core/types";
+import type { Brush, EquationObject, FrameObject, PageObject, ShapeObject, Stroke, TextObject } from "../core/types";
 import { type PortableBoard, readArchive, writeArchive } from "./archive";
 import { BoardDocument } from "./store";
 
@@ -135,6 +135,34 @@ describe("portable .board", () => {
     assert.throws(() => writeArchive(withInvalid({
       ...text, props: { ...text.props, fontSize: 0 },
     })), /text/);
+  });
+
+  it("preserves an editable equation and its vector paths within the same portable format", () => {
+    const equation: EquationObject = {
+      id: "formula", type: "equation", locked: false, zIndex: 11, parentId: page.id,
+      transform: [1, 0, 0, 1, 30, 55],
+      props: {
+        latex: "\\frac{1}{x}+\\alpha", color: "#192038", fontSize: 18, width: 80, height: 32,
+        paths: [{ d: "M0 0H20V8H0Z", transform: [0.08, 0, 0, -0.08, 10, 25] }],
+      },
+    };
+    const board = { ...mixed, scene: new Scene([...mixed.scene.objects, equation]).snapshot() };
+    const withEquation = (props: EquationObject["props"]) => ({
+      ...mixed, scene: { ...mixed.scene, objects: [...mixed.scene.objects, { ...equation, props }] },
+    });
+    const encoded = writeArchive(board);
+    assert.deepEqual(readArchive(encoded), board);
+    assert.deepEqual(objectBounds(equation), { minX: 30, minY: 55, maxX: 110, maxY: 87 });
+    const path = equation.props.paths[0];
+    for (const invalid of [
+      { ...path, d: "M0 0L1e999 2" },
+      { ...path, d: "M0 0H10Z\" style=\"fill:url(about:blank)" },
+      { ...path, d: "M0 0 " + "H0 ".repeat(70_000) },
+      { ...path, transform: [1, 0, 0, 0, 0, 0] as const },
+    ]) {
+      assert.throws(() => writeArchive(withEquation({ ...equation.props, paths: [invalid] })), /equation path/);
+    }
+    assert.throws(() => writeArchive(withEquation({ ...equation.props, latex: "x".repeat(16_385) })), /equation object/);
   });
 });
 

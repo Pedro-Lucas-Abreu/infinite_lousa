@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createStroke } from '../core/stroke'
-import type { Affine, FrameObject, PageObject } from '../core/types'
+import type { Affine, EquationObject, FrameObject, PageObject } from '../core/types'
 import { fittingFrame, hitInk, hitObject, multiplyTransforms, rectanglePoints, regionIntersects, transformPoint } from './geometry'
 
 test('an eraser sweep hits the transformed ink between pointer samples', () => {
@@ -38,6 +38,16 @@ test('world transforms retain the location of ink relative to its page', () => {
   const change: Affine = [0, 2, -2, 0, 3, 7]
   assert.deepEqual(transformPoint(multiplyTransforms(change, page), { x: 2, y: 10 }),
     transformPoint(multiplyTransforms(change, ink), { x: 0, y: 0 }))
+})
+
+test('transformed equations are selectable by their local formula area', () => {
+  const equation: EquationObject = {
+    id: 'formula', type: 'equation', zIndex: 1, locked: false, transform: [0, 1, -1, 0, 80, 50],
+    props: { latex: 'x', color: '#192038', fontSize: 24, width: 24, height: 16,
+      paths: [{ d: 'M0 0 L24 16 L24 0 Z', transform: [1, 0, 0, 1, 0, 0] }] },
+  }
+  assert.equal(hitObject(equation, { x: 72, y: 60 }, 0), true)
+  assert.equal(hitObject(equation, { x: 51, y: 60 }, 0), false)
 })
 
 test('frames retain 16:9 when dragged by height towards the left', () => {

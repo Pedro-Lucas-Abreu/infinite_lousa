@@ -2,11 +2,20 @@ import { viewportBounds, worldToScreen } from '../core/camera'
 import type { Scene } from '../core/scene'
 import { strokeOutline } from '../core/stroke'
 import type { Affine, BoardObject, Bounds, Camera, PageObject, Point, Stroke, Viewport } from '../core/types'
-import { drawShape, drawTextObject } from './drawings'
+import { drawEquationObject, drawShape, drawTextObject } from './drawings'
 import { rectanglePoints, selectionHandles } from './geometry'
 
 export type BoardBackground = 'white' | 'dark' | 'dotted' | 'grid' | 'millimeter'
 export type GetPageRaster = (page: PageObject, effectiveScale: number) => CanvasImageSource | undefined
+export type PointerEffect = 'laser' | 'spotlight'
+
+export interface CanvasPointer {
+  point: Point
+  kind: PointerEffect | 'pen' | 'hand' | 'eraser' | 'text' | 'crosshair'
+  color: string
+  size: number
+  parentId?: string
+}
 
 export interface CanvasOverlay {
   selection?: { bounds: Bounds; canRotate: boolean }
@@ -14,6 +23,7 @@ export interface CanvasOverlay {
   previewObjects?: readonly BoardObject[]
   eraser?: { point: Point; radius: number }
   polygon?: { points: readonly Point[]; hover?: Point; color: string; size: number; parentId?: string }
+  pointer?: CanvasPointer
 }
 
 export interface BackgroundFrameMetrics {
@@ -166,6 +176,10 @@ export class CanvasRenderer {
       drawTextObject(context, object, this.boardColor(object.props.color, object.parentId))
       return
     }
+    if (object.type === 'equation') {
+      drawEquationObject(context, object, this.boardColor(object.props.color, object.parentId))
+      return
+    }
     const [a, b, c, d] = object.transform
     const effectiveScale = camera.zoom * Math.max(Math.hypot(a * this.scaleX, b * this.scaleY), Math.hypot(c * this.scaleX, d * this.scaleY))
     const { width, height } = object.props
@@ -255,6 +269,62 @@ export class CanvasRenderer {
       context.stroke()
     }
     if (overlay.polygon) this.drawPolygonDraft(overlay.polygon, camera)
+    if (overlay.pointer) this.drawPointer(overlay.pointer)
+  }
+
+  private drawPointer({ point: { x, y }, kind, color, size, parentId }: CanvasPointer): void {
+    const context = this.liveContext
+    context.save()
+    context.lineCap = 'round'
+    context.setLineDash([])
+    if (kind === 'spotlight') {
+      const radius = Math.min(130, Math.max(65, Math.min(this.viewport.width, this.viewport.height) * 0.17))
+      const dim = new Path2D()
+      dim.rect(0, 0, this.viewport.width, this.viewport.height)
+      dim.moveTo(x + radius, y)
+      dim.arc(x, y, radius, 0, Math.PI * 2)
+      context.fillStyle = 'rgba(12, 18, 32, 0.62)'
+      context.fill(dim, 'evenodd')
+      context.strokeStyle = 'rgba(255, 255, 255, 0.85)'
+      context.lineWidth = 1.5
+      context.beginPath()
+      context.arc(x, y, radius, 0, Math.PI * 2)
+      context.stroke()
+    } else if (kind === 'laser' || kind === 'pen' || kind === 'eraser') {
+      const radius = kind === 'laser' ? 6 : kind === 'eraser' ? size : Math.max(2.5, size / 2)
+      context.beginPath()
+      context.arc(x, y, radius, 0, Math.PI * 2)
+      context.strokeStyle = 'rgba(12, 18, 32, 0.7)'
+      context.lineWidth = 3.5
+      context.stroke()
+      context.strokeStyle = '#fff'
+      context.lineWidth = 1.5
+      context.stroke()
+      if (kind !== 'eraser') {
+        context.beginPath()
+        context.arc(x, y, Math.max(1.5, radius - 0.75), 0, Math.PI * 2)
+        context.fillStyle = kind === 'laser' ? '#ff414d' : this.boardColor(color, parentId)
+        context.fill()
+      }
+    } else {
+      context.beginPath()
+      if (kind === 'text') {
+        context.moveTo(x - 4, y - 8); context.lineTo(x + 4, y - 8)
+        context.moveTo(x, y - 8); context.lineTo(x, y + 8)
+        context.moveTo(x - 4, y + 8); context.lineTo(x + 4, y + 8)
+      } else {
+        const radius = kind === 'hand' ? 8 : 10
+        context.moveTo(x - radius, y); context.lineTo(x + radius, y)
+        context.moveTo(x, y - radius); context.lineTo(x, y + radius)
+      }
+      context.strokeStyle = '#fff'
+      context.lineWidth = 4
+      context.stroke()
+      context.strokeStyle = this.boardColor(color, parentId)
+      context.lineWidth = kind === 'crosshair' ? Math.max(1.5, Math.min(3, size / 2)) : 2
+      context.stroke()
+    }
+    context.restore()
   }
 
   private drawPolygonDraft(polygon: NonNullable<CanvasOverlay['polygon']>, camera: Camera): void {

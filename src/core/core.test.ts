@@ -3,12 +3,27 @@ import { describe, it } from "node:test";
 import { panBy, screenToWorld, viewportBounds, worldToScreen, zoomAt } from "./camera";
 import { type SceneSnapshot, Scene, objectBounds } from "./scene";
 import { shapeArrowHead } from "./shapes";
+import { hasValidSvgPathData } from "./svgPath";
 import { createStroke, StrokeInput, strokeOutline } from "./stroke";
 import type { Brush, Camera, ShapeObject } from "./types";
 
 const viewport = { width: 960, height: 540 };
 const camera: Camera = { x: 0, y: 0, zoom: 1 };
 const brush: Brush = { color: "#102030", size: 4, stabilizer: 45, simulatePressure: true };
+
+describe("SVG path data", () => {
+  it("accepts compact coordinates, implicit commands and arc flags", () => {
+    assert.ok(hasValidSvgPathData("M0.6.5 4-3 H+5e1v4c1 2 3 4 5 6Q3,4,5,6t7 8z"));
+    assert.ok(hasValidSvgPathData(" m 0,0 A4 7 30 0112-5 a6 3 0,1,0,4,3 Z "));
+  });
+
+  it("requires complete numeric commands and rejects markup and non-finite values", () => {
+    for (const path of ["L0 0", "M0", "M0,,0", "M0 0L1e500 1", "M0 0A2 2 0 2 0 1 2",
+      "M0 0z 1 2", "M0 0Q1 2", "M0 0 L1 1,", "M0 0ſ1 2 3 4", "M0 0'><path d='M0 0"]) {
+      assert.equal(hasValidSvgPathData(path), false, path);
+    }
+  });
+});
 
 describe("camera", () => {
   it("holds the world point under the cursor when zooming a distant scene", () => {

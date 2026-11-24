@@ -17,6 +17,7 @@ export const tools: ReadonlyArray<{ id: BoardTool; label: string; key: string; i
   { id: 'lasso', label: 'Laço', key: 'B', icon: '⌁' },
   { id: 'hand', label: 'Mão', key: 'M', icon: '✥' },
   { id: 'text', label: 'Texto', key: 'T', icon: 'T' },
+  { id: 'equation', label: 'Equação', key: 'Q', icon: 'ƒ' },
 ]
 
 export const shapeTools: typeof tools = [

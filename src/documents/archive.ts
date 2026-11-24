@@ -1,6 +1,7 @@
 import { Unzip, UnzipInflate, zipSync } from "fflate";
 import type { SceneSnapshot } from "../core/scene";
-import { type Affine, type BoardObject, type Brush, type Point, type ShapeKind, type StrokePoint, isPageObject } from "../core/types";
+import { hasValidSvgPathData } from "../core/svgPath";
+import { type Affine, type BoardObject, type Brush, type EquationPath, type Point, type ShapeKind, type StrokePoint, isPageObject } from "../core/types";
 
 const MAX_ARCHIVE = 128 * 1024 * 1024;
 const MAX_TOTAL = 192 * 1024 * 1024;
@@ -10,6 +11,10 @@ const MAX_MANIFEST = 512 * 1024;
 const MAX_FILES = 1024;
 const MAX_OBJECTS = 100_000;
 const MAX_POINTS = 2_000_000;
+const MAX_LATEX_LENGTH = 16_384;
+const MAX_EQUATION_PATHS = 2_048;
+const MAX_PATH_LENGTH = 200_000;
+const MAX_EQUATION_GEOMETRY = 2_000_000;
 const CHUNK_SIZE = 16 * 1024;
 const idPattern = /^[a-zA-Z0-9_-]{1,128}$/;
 const mimePattern = /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/;
@@ -208,6 +213,21 @@ function isAffine(value: unknown): value is Affine {
   return finite(determinant) && determinant !== 0;
 }
 
+function validateEquationPaths(value: unknown): EquationPath[] {
+  if (!Array.isArray(value) || value.length > MAX_EQUATION_PATHS) {
+    throw new Error("Invalid equation path list.");
+  }
+  let length = 0;
+  return value.map((path) => {
+    if (!isRecord(path) || typeof path.d !== "string" || path.d.length > MAX_PATH_LENGTH ||
+        (length += path.d.length) > MAX_EQUATION_GEOMETRY ||
+        !hasValidSvgPathData(path.d) || !isAffine(path.transform)) {
+      throw new Error("Invalid equation path data or transform.");
+    }
+    return { d: path.d, transform: path.transform };
+  });
+}
+
 function validateScene(scene: unknown): SceneSnapshot {
   if (!isRecord(scene) || scene.version !== 1 || !Array.isArray(scene.objects) ||
       scene.objects.length > MAX_OBJECTS) {
@@ -270,6 +290,17 @@ function validateScene(scene: unknown): SceneSnapshot {
         throw new Error("Invalid text object.");
       }
       return { ...base, ...attachment, type: "text", props: { text, width, height, color, fontSize } };
+    }
+    if (object.type === "equation") {
+      const { latex, color, fontSize, paths } = props;
+      if (typeof latex !== "string" || !latex.trim() || latex.length > MAX_LATEX_LENGTH ||
+          !isColor(color) || !finite(fontSize) || fontSize <= 0) {
+        throw new Error("Invalid equation object.");
+      }
+      return {
+        ...base, ...attachment, type: "equation",
+        props: { latex, width, height, color, fontSize, paths: validateEquationPaths(paths) },
+      };
     }
     if (object.type === "image" || object.type === "pdfPage") {
       if (!isId(props.assetId) || object.parentId !== undefined ||
