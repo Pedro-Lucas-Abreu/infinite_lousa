@@ -1,5 +1,10 @@
 # Mudanças
 
+## Mais expansões LaTeX
+
+- No editor, experimente `leq`, `deg`, `infty` ou `phi` seguidos de **Tab**. São 18 novas palavras para inserir símbolos e letras gregas.
+- Em **Atalhos → Equações**, consulte **Palavra + Tab** e **Digite direto**. Cada entrada tem nome em português, símbolo ou prévia, forma de digitar e código LaTeX. Busque por `mais ou menos`, `±`, `pm` ou `menor ou igual`.
+
 ## Atalhos e edição de equações
 
 - Abra o painel com **?** ou em **Arquivo → Atalhos**. Busque por tecla, ação ou categoria. **Esc** fecha o painel.

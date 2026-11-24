@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { EquationPath, Point } from '../core/types'
-import { editLatex } from '../equations/editing'
+import { editLatex, type LatexEdit } from '../equations/editing'
 import { findShortcut } from '../shortcuts'
 
 interface VectorPreview {
@@ -27,6 +27,7 @@ async function readVector(source: string, fontSize: number): Promise<VectorPrevi
 export function EquationEditor({ initialSource, position, color, fontSize, onInsert, onCancel }: Props) {
   const field = useRef<HTMLInputElement>(null)
   const pendingSelection = useRef<{ start: number; end: number } | null>(null)
+  const infinityReplacement = useRef<LatexEdit | undefined>(undefined)
   const alive = useRef(true)
   const [source, setSource] = useState(initialSource)
   const [preview, setPreview] = useState<{ source: string; vector?: VectorPreview; error?: string } | null>(null)
@@ -80,6 +81,8 @@ export function EquationEditor({ initialSource, position, color, fontSize, onIns
   return <form className="board-equation-editor" data-board-editor aria-label="Editor de equação"
     style={{ left: position.x, top: position.y }} onSubmit={(event) => { void submit(event) }}
     onKeyDown={(event) => {
+      const previous = infinityReplacement.current
+      infinityReplacement.current = undefined
       if (event.nativeEvent.isComposing) return
       const action = findShortcut(event, 'equation')
       if (action === 'equation-cancel') {
@@ -94,9 +97,10 @@ export function EquationEditor({ initialSource, position, color, fontSize, onIns
         event.currentTarget.requestSubmit()
       }
       if (submitting || (action !== 'equation-expand' && action !== 'equation-typing')) return
-      const edit = editLatex(source, input.selectionStart ?? source.length, input.selectionEnd ?? source.length, event.key)
+      const edit = editLatex(source, input.selectionStart ?? source.length, input.selectionEnd ?? source.length, event.key, previous)
       if (!edit || edit.value.length > input.maxLength) return
       event.preventDefault()
+      if (edit.infinityContinuation) infinityReplacement.current = edit
       if (edit.value === source) {
         input.setSelectionRange(edit.start, edit.end)
       } else {
@@ -107,7 +111,13 @@ export function EquationEditor({ initialSource, position, color, fontSize, onIns
     <label htmlFor="equation-source">LaTeX</label>
     <input id="equation-source" ref={field} type="text" maxLength={16_384} spellCheck={false}
       autoComplete="off" placeholder="2x = 10 ou \frac{1}{2}" value={source}
-      readOnly={submitting} onChange={(event) => setSource(event.target.value)} />
+      readOnly={submitting}
+      onPointerDown={() => { infinityReplacement.current = undefined }}
+      onBlur={() => { infinityReplacement.current = undefined }}
+      onChange={(event) => {
+        infinityReplacement.current = undefined
+        setSource(event.target.value)
+      }} />
     <div className="equation-preview" aria-live="polite">
       {current?.vector ? <svg role="img" aria-label={`Prévia de ${source}`} style={{ color }}
         width={current.vector.width * 24 / fontSize} height={current.vector.height * 24 / fontSize}

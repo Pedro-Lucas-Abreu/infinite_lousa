@@ -43,3 +43,10 @@ test("keeps the standard LaTeX meaning of a parenthesized exponent", async () =>
   const grouped = await renderEquation("x^{(2x)}", 24);
   assert.ok(literal.width > grouped.width);
 });
+
+test("typesets the new classroom symbols as vector paths", async () => {
+  const latex = String.raw`a\leq b\geq c\neq d\approx e\equiv f\pm g\mp h\cdot i\times j\div k\to\infty + 45^\circ + \angle\phi\epsilon\rho\tau`;
+  const { paths } = await renderEquation(latex, 24);
+  assert.ok(paths.length > 18);
+  assert.ok(paths.every(({ d }) => hasValidSvgPathData(d)));
+});

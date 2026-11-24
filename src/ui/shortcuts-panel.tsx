@@ -1,13 +1,33 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react'
-import { findShortcut, shortcuts, type ShortcutCategory } from '../shortcuts'
+import { findShortcut, type Shortcut, type ShortcutCategory } from '../shortcuts'
+import { filterShortcuts } from '../shortcuts/filter'
 
 interface ShortcutsPanelProps {
   open: boolean
   onClose: () => void
 }
 
-function searchText(value: string): string {
-  return value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('pt-BR')
+const equationSections = [['tab', 'Palavra + Tab'], ['direct', 'Digite direto']] as const
+
+function ShortcutList({ entries }: { entries: readonly Shortcut[] }) {
+  if (!entries.length) return null
+
+  return (
+    <ul>
+      {entries.map(({ id, action, keys, equation }) => (
+        <li key={id}>
+          <span className="shortcut-description">
+            {equation && <span className="shortcut-preview" aria-hidden="true">{equation.preview}</span>}
+            <span>{action}</span>
+            {equation && <code>{equation.code}</code>}
+          </span>
+          <span className="shortcut-keys">
+            {keys.map((key) => <kbd key={key}>{key}</kbd>)}
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 function OpenShortcutsPanel({ onClose }: Pick<ShortcutsPanelProps, 'onClose'>) {
@@ -16,12 +36,9 @@ function OpenShortcutsPanel({ onClose }: Pick<ShortcutsPanelProps, 'onClose'>) {
   const search = useRef<HTMLInputElement>(null)
   const results = useRef<HTMLDivElement>(null)
   const [query, setQuery] = useState('')
-  const words = searchText(query).trim().split(/\s+/).filter(Boolean)
-  const groups = new Map<ShortcutCategory, Array<(typeof shortcuts)[number]>>()
+  const groups = new Map<ShortcutCategory, Shortcut[]>()
 
-  for (const shortcut of shortcuts) {
-    const text = searchText([shortcut.action, shortcut.category, ...shortcut.keys].join(' '))
-    if (!words.every((word) => text.includes(word))) continue
+  for (const shortcut of filterShortcuts(query)) {
     const group = groups.get(shortcut.category)
     if (group) group.push(shortcut)
     else groups.set(shortcut.category, [shortcut])
@@ -76,16 +93,17 @@ function OpenShortcutsPanel({ onClose }: Pick<ShortcutsPanelProps, 'onClose'>) {
         {Array.from(groups, ([category, entries]) => (
           <section className="shortcut-group" key={category}>
             <h3>{category}</h3>
-            <ul>
-              {entries.map((shortcut) => (
-                <li key={`${shortcut.scope}-${shortcut.id}`}>
-                  <span>{shortcut.action}</span>
-                  <span className="shortcut-keys">
-                    {shortcut.keys.map((key) => <kbd key={key}>{key}</kbd>)}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <ShortcutList entries={entries.filter(({ equation }) => !equation)} />
+            {category === 'Equações' && equationSections.map(([mode, title]) => {
+              const matching = entries.filter(({ equation }) => equation?.mode === mode)
+              if (!matching.length) return null
+              return (
+                <section className="shortcut-equation" key={mode}>
+                  <h4>{title}</h4>
+                  <ShortcutList entries={matching} />
+                </section>
+              )
+            })}
           </section>
         ))}
         <p className="shortcuts-empty" role="status">

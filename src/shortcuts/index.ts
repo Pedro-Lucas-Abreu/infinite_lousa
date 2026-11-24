@@ -1,4 +1,4 @@
-import { latexExpansions, latexReplacements } from '../equations/editing'
+import { latexExpansionDetails, latexReplacementDetails } from '../equations/shortcuts'
 
 export type ShortcutScope = 'board' | 'controller' | 'text' | 'equation' | 'panel'
 export type ShortcutCategory = 'Ferramentas' | 'Lousa' | 'PDF e quadros' | 'Equações' | 'Edição'
@@ -30,6 +30,7 @@ export interface Shortcut {
   keys: readonly string[]
   bindings: readonly KeyBinding[]
   pointerBindings: readonly PointerBinding[]
+  equation?: { mode: 'tab' | 'direct'; preview: string; code: string }
 }
 
 const visibleKey: Readonly<Record<string, string>> = {
@@ -54,6 +55,15 @@ function board<Id extends string>(id: Id, category: ShortcutCategory, action: st
   return entry(id, 'board', category, action, bindings)
 }
 
+function equationHelp<Id extends string>(id: Id, trigger: string, details: { name: string; preview: string; code: string },
+  mode: 'tab' | 'direct') {
+  const keys = mode === 'tab' ? [`${trigger} + Tab`] : [trigger]
+  return {
+    ...entry(id, 'equation', 'Equações', details.name, [], keys),
+    equation: { mode, code: details.code, preview: details.preview },
+  }
+}
+
 const plain = (key: string, single?: true): KeyBinding => single ? { key, shift: 'either', single } : { key, shift: 'either' }
 const command = (key: string, shift?: true): KeyBinding => shift ? { key, modifier: 'command', shift } : { key, modifier: 'command' }
 const alt = (key: string): KeyBinding => ({ key, modifier: 'alt', shift: 'either' })
@@ -69,7 +79,7 @@ const favorites = [1, 2, 3, 4, 5, 6] as const
 const groupKeys = ['^', '_', '{', '}']
 const equationTypingKeys: KeyBinding[] = [
   ...groupKeys.map((key): KeyBinding => ({ key, shift: 'either', label: key, caseSensitive: true })),
-  ...[...new Set(Object.keys(latexReplacements).map((sequence) => sequence.at(-1)!))]
+  ...[...new Set([...Object.keys(latexReplacementDetails).map((sequence) => sequence.at(-1)!), 't'])]
     .map((key): KeyBinding => ({ key, shift: 'either', caseSensitive: true, hidden: true })),
 ]
 
@@ -153,10 +163,10 @@ export const shortcuts = [
   entry('equation-cancel', 'equation', 'Equações', 'Cancelar edição de equação', [plain('Escape')]),
   entry('equation-expand', 'equation', 'Equações', 'Expandir modelo LaTeX ou avançar pelo próximo campo', [{ key: 'Tab' }]),
   entry('equation-typing', 'equation', 'Equações', 'Inserir agrupamentos ou avançar pelo fechamento de chave', equationTypingKeys),
-  ...Object.entries(latexExpansions).map(([token, latex]) =>
-    entry(`equation-template-${token}` as const, 'equation', 'Equações', latex, [], [`${token} + Tab`])),
-  ...Object.entries(latexReplacements).map(([symbol, latex]) =>
-    entry(`equation-symbol-${symbol}` as const, 'equation', 'Equações', latex, [], [symbol])),
+  ...Object.entries(latexExpansionDetails).map(([token, details]) =>
+    equationHelp(`equation-template-${token}` as const, token, details, 'tab')),
+  ...Object.entries(latexReplacementDetails).map(([symbol, details]) =>
+    equationHelp(`equation-symbol-${symbol}` as const, symbol, details, 'direct')),
 ] as const satisfies readonly Shortcut[]
 
 export type ShortcutId = typeof shortcuts[number]['id']

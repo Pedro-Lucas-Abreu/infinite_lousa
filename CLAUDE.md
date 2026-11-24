@@ -3,7 +3,7 @@
 ## Shortcut registry
 
 - Define key bindings and their Portuguese descriptions in `src/shortcuts/index.ts`. Keyboard handlers look up an action by scope. The shortcuts panel and UI hints read the same registry. Keep the browser's native paste event for clipboard files.
-- Equation editing is a pure source and selection transform in `src/equations/editing.ts`. The control restores the caret after applying a transform. Template and symbol entries in the shortcuts panel use the editing maps. The renderer receives the resulting LaTeX as entered.
+- Equation editing is a pure source and selection transform in `src/equations/editing.ts`. The control restores the caret after applying a transform. `src/equations/shortcuts.ts` defines the expansions and replacements with localized names and previews used by the searchable panel. The renderer receives the resulting LaTeX as entered.
 
 ## Scope and workflow
 

@@ -43,6 +43,23 @@ it("expands plain tokens only with Tab and leaves existing LaTeX commands alone"
   assert.equal(atCursor("x^{frac|}", "Tab"), "x^{\\frac{|}{}}");
 });
 
+it("expands the additional symbols only as isolated words followed by Tab", () => {
+  const expected = {
+    leq: "\\leq", geq: "\\geq", neq: "\\neq", approx: "\\approx", equiv: "\\equiv",
+    pm: "\\pm", mp: "\\mp", cdot: "\\cdot", times: "\\times", div: "\\div",
+    to: "\\to", infty: "\\infty", deg: "^\\circ", angle: "\\angle", phi: "\\phi",
+    epsilon: "\\epsilon", rho: "\\rho", tau: "\\tau",
+  };
+  for (const [word, code] of Object.entries(expected)) {
+    assert.equal(atCursor(`x + ${word}|`, "Tab"), `x + ${code} |`, word);
+    assert.equal(atCursor(`${word}|`, " "), undefined, word);
+    assert.equal(atCursor(`\\${word}|`, "Tab"), undefined, word);
+    assert.equal(atCursor(`pre${word}|`, "Tab"), undefined, word);
+    assert.equal(atCursor(`${word}|po`, "Tab"), undefined, word);
+  }
+  assert.equal(atCursor("topo|", "Tab"), undefined);
+});
+
 it("moves through the matching groups of a fraction, indexed root or sum", () => {
   assert.equal(atCursor("\\frac{a|}{b}", "Tab"), "\\frac{a}{|b}");
   assert.equal(atCursor("\\frac{a}{b|}{outside}", "Tab"), "\\frac{a}{b}|{outside}");
@@ -73,4 +90,20 @@ it("recognizes raw inf on the final keystroke and shields existing words or comm
   assert.equal(atCursor("coin|", "f"), undefined);
   assert.equal(atCursor("in|inity", "f"), undefined);
   assert.equal(atCursor("αin|", "f"), undefined);
+});
+
+it("can continue typing infty after inf has temporarily converted", () => {
+  const replacement = editLatex("x=in + 1", 4, 4, "f");
+  assert.ok(replacement);
+  assert.equal(replacement.value, "x=\\infty + 1");
+  const continued = editLatex(replacement.value, replacement.start, replacement.end, "t", replacement);
+  assert.deepEqual(continued, { value: "x=inft + 1", start: 6, end: 6 });
+  assert.equal(atCursor("x=infty| + 1", "Tab"), "x=\\infty |+ 1");
+
+  assert.equal(editLatex(replacement.value, replacement.start, replacement.end, "t"), undefined);
+  assert.equal(editLatex(replacement.value, replacement.start - 1, replacement.end - 1, "t", replacement), undefined);
+  assert.equal(editLatex(replacement.value + "2", replacement.start, replacement.end, "t", replacement), undefined);
+  const expanded = editLatex("infty", 5, 5, "Tab");
+  assert.ok(expanded);
+  assert.equal(editLatex(expanded.value, expanded.start, expanded.end, "t", expanded), undefined);
 });

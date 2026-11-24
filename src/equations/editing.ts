@@ -1,40 +1,20 @@
-export const latexExpansions = {
-  frac: "\\frac{}{}",
-  sqrt: "\\sqrt{}",
-  nroot: "\\sqrt[]{}",
-  sum: "\\sum_{}^{}",
-  int: "\\int_{}^{}",
-  lim: "\\lim_{}",
-  log: "\\log",
-  ln: "\\ln",
-  sin: "\\sin",
-  cos: "\\cos",
-  tan: "\\tan",
-  pi: "\\pi",
-  alpha: "\\alpha",
-  beta: "\\beta",
-  gamma: "\\gamma",
-  delta: "\\delta",
-  theta: "\\theta",
-  lambda: "\\lambda",
-  mu: "\\mu",
-  sigma: "\\sigma",
-  omega: "\\omega",
-} as const;
+import { latexExpansionDetails, latexReplacementDetails } from "./shortcuts";
 
-export const latexReplacements = {
-  "<=": "\\leq",
-  ">=": "\\geq",
-  "!=": "\\neq",
-  "+-": "\\pm",
-  "->": "\\to",
-  inf: "\\infty",
-} as const;
+function codesFor(details: Readonly<Record<string, { readonly code: string }>>): Readonly<Record<string, string>> {
+  return Object.fromEntries(Object.entries(details).map(([key, { code }]) => [key, code]));
+}
 
-export interface LatexEdit {
+export const latexExpansions = codesFor(latexExpansionDetails);
+export const latexReplacements = codesFor(latexReplacementDetails);
+
+interface SourceSelection {
   value: string;
   start: number;
   end: number;
+}
+
+export interface LatexEdit extends SourceSelection {
+  infinityContinuation?: SourceSelection;
 }
 
 const wordAtEnd = /[\p{L}\p{M}\p{N}_]$/u;
@@ -112,15 +92,19 @@ function nextPlaceholder(value: string, start: number, end: number): number | un
   return undefined;
 }
 
-export function editLatex(value: string, start: number, end: number, key: string): LatexEdit | undefined {
+export function editLatex(value: string, start: number, end: number, key: string, previous?: LatexEdit): LatexEdit | undefined {
   if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || end > value.length) {
     return undefined;
   }
+  // Keep the immediate inf shortcut while still letting its longer spelling infty be typed.
+  if (key === "t" && previous?.infinityContinuation && previous.value === value &&
+      previous.start === start && previous.end === end) return previous.infinityContinuation;
+
   if (key === "Tab") {
     if (start === end) {
       const bare = /[a-z]+$/.exec(value.slice(0, start));
       if (bare && Object.hasOwn(latexExpansions, bare[0]) && isBareToken(value, bare.index, start)) {
-        const template = latexExpansions[bare[0] as keyof typeof latexExpansions];
+        const template = latexExpansions[bare[0]];
         return insertTemplate(value, bare.index, start, template);
       }
     }
@@ -140,7 +124,11 @@ export function editLatex(value: string, start: number, end: number, key: string
     const from = start - sequence.length + 1;
     if (from < 0 || value.slice(from, start) !== sequence.slice(0, -1)) continue;
     if (sequence === "inf" ? !isBareToken(value, from, start) : isEscaped(value, from)) continue;
-    return insertControlWord(value, from, start, replacement);
+    const edit = insertControlWord(value, from, start, replacement);
+    if (sequence === "inf") {
+      edit.infinityContinuation = move(value.slice(0, start) + "ft" + value.slice(start), start + 2);
+    }
+    return edit;
   }
   return undefined;
 }

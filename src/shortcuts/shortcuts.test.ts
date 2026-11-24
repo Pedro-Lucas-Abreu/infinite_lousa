@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { latexExpansions, latexReplacements } from '../equations/editing'
+import { filterShortcuts } from './filter'
 import { acceptsPointer, findShortcut, keyMatches, pointerButtons, pointerConstrained, shortcutAria, shortcutLabel, shortcuts,
   shouldExtendSelection, shouldStartPan, shouldZoomWithWheel, type KeyBinding, type ShortcutEvent, type ShortcutScope } from './index'
 
@@ -72,16 +73,41 @@ test('native paste and multiline typing are left to the browser, and composed ke
 test('the equation panel lists every implemented template and automatic symbol', () => {
   for (const [token, latex] of Object.entries(latexExpansions)) {
     const row = shortcuts.find(({ id }) => id === `equation-template-${token}`)
-    assert.equal(row?.action, latex)
+    assert.ok(row?.equation)
+    assert.equal(row.equation.mode, 'tab')
+    assert.equal(row.equation.code, latex)
+    assert.ok(row.equation.preview)
+    assert.ok(row.action && row.action !== latex)
     assert.deepEqual(row.keys, [`${token} + Tab`])
   }
   for (const [symbol, latex] of Object.entries(latexReplacements)) {
     const row = shortcuts.find(({ id }) => id === `equation-symbol-${symbol}`)
-    assert.equal(row?.action, latex)
+    assert.ok(row?.equation)
+    assert.equal(row.equation.mode, 'direct')
+    assert.equal(row.equation.code, latex)
+    assert.ok(row.equation.preview)
+    assert.ok(row.action && row.action !== latex)
     assert.deepEqual(row.keys, [symbol])
     assert.equal(findShortcut(event(symbol.at(-1)!), 'equation'), 'equation-typing')
   }
   assert.deepEqual(shortcuts.find(({ id }) => id === 'equation-typing')?.keys, ['^', '_', '{', '}'])
+})
+
+test('shortcut search finds Portuguese names, symbols, LaTeX and input triggers', () => {
+  for (const query of ['mais ou menos', '±', 'PM', '\\pm']) {
+    const matches = filterShortcuts(query).map(({ id }) => id)
+    assert.ok(matches.includes('equation-template-pm'), query)
+    assert.ok(matches.includes('equation-symbol-+-'), query)
+  }
+  for (const query of ['menor ou igual', '≤']) {
+    const matches = filterShortcuts(query).map(({ id }) => id)
+    assert.ok(matches.includes('equation-template-leq'), query)
+    assert.ok(matches.includes('equation-symbol-<='), query)
+  }
+  assert.deepEqual(filterShortcuts('  FRACAO  ').map(({ id }) => id), ['equation-template-frac'])
+  assert.deepEqual(filterShortcuts('<= menor ou igual').map(({ id }) => id), ['equation-symbol-<='])
+  assert.deepEqual(filterShortcuts('deg + Tab').map(({ id }) => id), ['equation-template-deg'])
+  assert.deepEqual(filterShortcuts('≠').map(({ id }) => id), ['equation-template-neq', 'equation-symbol-!='])
 })
 
 test('pointer dispatch follows the documented controls', () => {
