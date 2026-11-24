@@ -1,6 +1,6 @@
 import { latexExpansionDetails, latexReplacementDetails } from '../equations/shortcuts'
 
-export type ShortcutScope = 'board' | 'controller' | 'text' | 'equation' | 'panel'
+export type ShortcutScope = 'board' | 'controller' | 'text' | 'equation' | 'panel' | 'plot'
 export type ShortcutCategory = 'Ferramentas' | 'Lousa' | 'PDF e quadros' | 'Equações' | 'Edição'
 
 export interface KeyBinding {
@@ -151,12 +151,17 @@ export const shortcuts = [
   board('presentation', 'Lousa', 'Entrar ou sair da apresentação', plain('f', true)),
   board('laser', 'Lousa', 'Ligar ou desligar laser', plain('k', true)),
   board('spotlight', 'Lousa', 'Ligar ou desligar spotlight', plain('s', true)),
+  board('new-plot', 'Ferramentas', 'Inserir plano cartesiano', plain('F2', true)),
   board('escape', 'Lousa', 'Limpar seleção, cancelar quadro ou sair de modo temporário', plain('Escape')),
   entry('edit-text', 'controller', 'Edição', 'Editar texto com seleção ou laço', [], ['Duplo clique'],
     [{ gesture: 'edit', button: primary }]),
   entry('text-save', 'text', 'Edição', 'Salvar texto', [{ key: 'Enter' }]),
   entry('text-newline', 'text', 'Edição', 'Nova linha no texto', [{ key: 'Enter', shift: true, native: true }]),
   entry('text-cancel', 'text', 'Edição', 'Cancelar edição de texto', [plain('Escape')]),
+  entry('edit-plot', 'controller', 'Edição', 'Editar plano cartesiano com Seleção ou Laço', [], ['Duplo clique'],
+    [{ gesture: 'edit', button: primary }]),
+  entry('plot-save', 'plot', 'Edição', 'Inserir ou salvar plano cartesiano', [{ key: 'Enter' }]),
+  entry('plot-cancel', 'plot', 'Edição', 'Cancelar edição do plano cartesiano', [plain('Escape')]),
   entry('edit-equation', 'controller', 'Equações', 'Editar equação com seleção ou laço', [], ['Duplo clique'],
     [{ gesture: 'edit', button: primary }]),
   entry('equation-save', 'equation', 'Equações', 'Inserir ou salvar equação', [plain('Enter')]),
@@ -233,6 +238,6 @@ export function shouldExtendSelection(event: Pick<PointerEvent, 'button' | 'shif
     binding.button === event.button && binding.condition === 'shift' && event.shiftKey)
 }
 
-export function acceptsPointer(id: 'edit-text' | 'edit-equation' | 'finish-polygon' | 'dock-bar', button: number): boolean {
+export function acceptsPointer(id: 'edit-text' | 'edit-equation' | 'edit-plot' | 'finish-polygon' | 'dock-bar', button: number): boolean {
   return byId.get(id)!.pointerBindings.some((binding) => binding.button === button)
 }

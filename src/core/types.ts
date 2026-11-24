@@ -1,3 +1,5 @@
+import type { PlotFunction, PlotSettings } from "../plot/geometry";
+
 export interface Point {
   readonly x: number;
   readonly y: number;
@@ -121,7 +123,20 @@ export interface EquationObject extends ObjectBase {
   };
 }
 
-export type BoardObject = Stroke | PageObject | FrameObject | TextObject | ShapeObject | EquationObject;
+export interface PlotObject extends ObjectBase {
+  readonly type: "plot";
+  readonly parentId?: string;
+  readonly props: {
+    readonly width: number;
+    readonly height: number;
+    readonly color: string;
+    readonly size: number;
+    readonly settings: PlotSettings;
+    readonly functions: readonly PlotFunction[];
+  };
+}
+
+export type BoardObject = Stroke | PageObject | FrameObject | TextObject | ShapeObject | EquationObject | PlotObject;
 
 export interface BoardChange {
   readonly before?: BoardObject;

@@ -1,11 +1,14 @@
-import { drawEquationObject, drawShape, drawTextObject, TEXT_LINE_HEIGHT } from "../canvas/drawings";
+import {
+  drawEquationObject, drawPlotObject, drawShape, drawTextObject, PLOT_GRID_OPACITY, PLOT_GRID_WIDTH_RATIO, TEXT_LINE_HEIGHT,
+} from "../canvas/drawings";
 import { objectBounds, Scene } from "../core/scene";
 import { shapeArrowHead } from "../core/shapes";
 import { strokeOutline } from "../core/stroke";
-import type { Affine, Bounds, EquationObject, FrameObject, PageObject, Point, ShapeObject, Stroke, TextObject } from "../core/types";
+import type { Affine, Bounds, EquationObject, FrameObject, PageObject, PlotObject, Point, ShapeObject, Stroke, TextObject } from "../core/types";
 import type { BoardAsset, PortableBoard } from "../documents/archive";
 import type { PDFDict, PDFDocument, PDFFont, PDFImage, PDFPage } from "@cantoo/pdf-lib";
 import type { PDFDocumentProxy } from "pdfjs-dist";
+import { getPlotGeometry, type PlotLine } from "../plot/geometry";
 import { assetBlob, openPdf, renderPdfPage } from "./runtime";
 import type { OriginalPage } from "./source";
 
@@ -137,6 +140,7 @@ export async function exportPng(board: PortableBoard, options: ExportOptions = {
       else if (object.type === "shape") drawShape(context, object, contrastColor(object.props.color, options.background, object.parentId));
       else if (object.type === "text") drawTextObject(context, object, contrastColor(object.props.color, options.background, object.parentId));
       else if (object.type === "equation") drawEquationObject(context, object, contrastColor(object.props.color, options.background, object.parentId));
+      else if (object.type === "plot") drawPlotObject(context, object, (color) => contrastColor(color, options.background, object.parentId));
       else {
         const [a, b, c, d] = object.transform;
         const edge = Math.ceil(Math.max(object.props.width * Math.hypot(a, b), object.props.height * Math.hypot(c, d)) * scale);
@@ -214,6 +218,7 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
   const extStates = new Map<number, PDFDict>();
   let textFont: PDFFont | undefined;
   let textCharacters: Set<number> | undefined;
+  let plotGridState: PDFDict | undefined;
 
   function pushTransform(page: PDFPage, transform: Affine): void {
     page.pushOperators(pdf.pushGraphicsState(), pdf.concatTransformationMatrix(...transform));
@@ -308,6 +313,47 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
     }
   }
 
+  async function vectorPlot(page: PDFPage, object: PlotObject): Promise<void> {
+    const { width, height, color, size, settings, functions } = object.props;
+    const { grid, axes, labels, curves, fontSize } = getPlotGeometry(settings, width, height, functions);
+    const ink = colorComponents(contrastColor(color, options.background, object.parentId));
+
+    function strokeLines(lines: readonly PlotLine[]): void {
+      for (const { from, to } of lines) trace(page, [from, to]);
+      page.pushOperators(pdf.stroke());
+    }
+
+    page.pushOperators(pdf.setStrokingRgbColor(...ink), pdf.setLineCap(pdf.LineCapStyle.Round),
+      pdf.setLineJoin(pdf.LineJoinStyle.Round));
+    if (grid.length) {
+      plotGridState ??= output.context.obj({ Type: "ExtGState", CA: PLOT_GRID_OPACITY });
+      const gridOpacity = page.node.newExtGState("PlotGridOpacity", plotGridState);
+      page.pushOperators(pdf.pushGraphicsState(), pdf.setGraphicsState(gridOpacity), pdf.setLineWidth(size * PLOT_GRID_WIDTH_RATIO));
+      strokeLines(grid);
+      page.pushOperators(pdf.popGraphicsState());
+    }
+
+    page.pushOperators(pdf.setLineWidth(size));
+    if (axes.length) strokeLines(axes);
+    for (const curve of curves) {
+      if (!curve.paths.length) continue;
+      page.pushOperators(pdf.setStrokingRgbColor(...colorComponents(contrastColor(curve.color, options.background, object.parentId))));
+      for (const path of curve.paths) trace(page, path);
+      page.pushOperators(pdf.stroke());
+    }
+
+    if (!labels.length) return;
+    const font = textFont ??= await output.embedFont(pdf.StandardFonts.Helvetica);
+    const labelColor = pdf.rgb(...ink);
+    // Plot positions use Y-down coordinates, but PDF glyphs need a Y-up text transform.
+    page.pushOperators(pdf.concatTransformationMatrix(1, 0, 0, -1, 0, 0));
+    for (const { text, x, y, align } of labels) {
+      const extent = font.widthOfTextAtSize(text, fontSize);
+      const offset = align === "center" ? extent / 2 : align === "right" ? extent : 0;
+      page.drawText(text, { font, size: fontSize, color: labelColor, x: x - offset, y: -y });
+    }
+  }
+
   async function embedPageOrImage(object: PageObject): Promise<OriginalPage | PDFImage> {
     const asset = findAsset(assets, object);
     if (object.type === "image") return embedRaster(output, asset);
@@ -349,6 +395,7 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
         else if (object.type === "shape") vectorShape(page, object);
         else if (object.type === "text") await drawPdfText(page, object);
         else if (object.type === "equation") vectorEquation(page, object);
+        else if (object.type === "plot") await vectorPlot(page, object);
         else {
           const { width, height, assetId, pageIndex } = object.props;
           const key = `${assetId}/${object.type === "pdfPage" ? pageIndex ?? 0 : "image"}`;

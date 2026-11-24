@@ -5,7 +5,7 @@ import { BoardController } from './canvas/controller'
 import type { BoardTool, BrushStyle } from './canvas/controller'
 import { screenToWorld } from './core/camera'
 import { objectBounds, Scene } from './core/scene'
-import type { BoardChange, BoardObject, EquationObject, EquationPath, FrameObject, PageObject, Point, TextObject } from './core/types'
+import type { Affine, BoardChange, BoardObject, EquationObject, EquationPath, FrameObject, PageObject, PlotObject, Point, TextObject } from './core/types'
 import { BoardDocument } from './documents/store'
 import { decodeFromFile, openBoardFile, saveBoardFile } from './documents/files'
 import { registerPwa } from './pwa/register'
@@ -21,8 +21,11 @@ import { fitCamera, framesForPages } from './ui/frames'
 import { backgrounds, initialFavorites, shapeTools, tools, Tools } from './ui/tools'
 import { TextEditor } from './ui/text-editor'
 import { EquationEditor } from './ui/equation-editor'
+import { PlotEditor } from './ui/plot-editor'
 import { ShortcutsPanel } from './ui/shortcuts-panel'
 import { findShortcut, shortcutAria, shortcutLabel } from './shortcuts'
+import { DEFAULT_PLOT_SETTINGS } from './plot/geometry'
+import { alignPlotAxes } from './plot/object'
 import { textBoxDimensions } from './ui/text'
 import type { Background, Dock } from './ui/tools'
 import './styles.css'
@@ -53,6 +56,12 @@ interface EquationDraft {
   fontSize: number
   object?: EquationObject
   parentId?: string
+}
+
+interface PlotDraft {
+  initial: PlotObject['props']
+  transform: Affine
+  object?: PlotObject
 }
 
 type PointerEffect = 'laser' | 'spotlight' | null
@@ -110,6 +119,7 @@ function Board() {
   const resetPreviews = useRef<(() => void) | null>(null)
   const textDraftRef = useRef<TextDraft | null>(null)
   const equationDraftRef = useRef<EquationDraft | null>(null)
+  const plotDraftRef = useRef<PlotDraft | null>(null)
   const shortcutsOpenRef = useRef(false)
   const presentingRef = useRef(false)
   const pointerEffectRef = useRef<PointerEffect>(null)
@@ -120,6 +130,7 @@ function Board() {
   const [activeFrame, setActiveFrame] = useState<string | null>(null)
   const [textDraft, setTextDraft] = useState<TextDraft | null>(null)
   const [equationDraft, setEquationDraft] = useState<EquationDraft | null>(null)
+  const [plotDraft, setPlotDraft] = useState<PlotDraft | null>(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [presenting, setPresenting] = useState(false)
   const [showPresentationBar, setShowPresentationBar] = useState(false)
@@ -140,7 +151,7 @@ function Board() {
 
   function openTextEditor(request: { point: Point; screen: Point; object?: TextObject; parentId?: string }) {
     const board = controller.current
-    if (!board || !documentRef.current || fileOperation.current || textDraftRef.current || equationDraftRef.current) return
+    if (!board || !documentRef.current || fileOperation.current || textDraftRef.current || equationDraftRef.current || plotDraftRef.current) return
     const { point, screen, object, parentId } = request
     const viewport = board.getViewport()
     const settings = useSettings.getState()
@@ -157,7 +168,7 @@ function Board() {
 
   function openEquationEditor(request: { point: Point; screen: Point; object?: EquationObject; parentId?: string }) {
     const board = controller.current
-    if (!board || !documentRef.current || fileOperation.current || textDraftRef.current || equationDraftRef.current) return
+    if (!board || !documentRef.current || fileOperation.current || textDraftRef.current || equationDraftRef.current || plotDraftRef.current) return
     const { point, screen, object, parentId } = request
     const viewport = board.getViewport()
     const settings = useSettings.getState()
@@ -195,6 +206,55 @@ function Board() {
     applyChanges([{ before, after }])
   }
 
+  function openPlotEditor(object?: PlotObject) {
+    const board = controller.current
+    if (!board || !documentRef.current || fileOperation.current ||
+      textDraftRef.current || equationDraftRef.current || plotDraftRef.current) return
+
+    const viewport = board.getViewport()
+    const camera = board.getCamera()
+    const width = Math.min(540, viewport.width * 0.82)
+    const height = Math.min(380, viewport.height * 0.82)
+    if (width <= 0 || height <= 0) return
+    const { x, y } = screenToWorld({ x: (viewport.width - width) / 2, y: (viewport.height - height) / 2 }, camera, viewport)
+    const units = 1 / camera.zoom
+    const draft: PlotDraft = {
+      object,
+      initial: object?.props ?? {
+        width, height, color: board.getStyle().color, size: 2,
+        settings: DEFAULT_PLOT_SETTINGS, functions: [],
+      },
+      transform: object?.transform ?? [units, 0, 0, units, x, y],
+    }
+    updatePointerEffect(null)
+    plotDraftRef.current = draft
+    setPlotDraft(draft)
+  }
+
+  function closePlotEditor() {
+    plotDraftRef.current = null
+    setPlotDraft(null)
+  }
+
+  function commitPlot(props: PlotObject['props']) {
+    const draft = plotDraftRef.current
+    const scene = sceneRef.current
+    if (!draft || !scene) return
+    closePlotEditor()
+    const before = draft.object
+    if (before && (scene.get(before.id) !== before || JSON.stringify(before.props) === JSON.stringify(props))) return
+    const after: PlotObject = {
+      ...(before ?? { id: crypto.randomUUID(), type: 'plot', locked: false, zIndex: scene.nextZIndex(), transform: draft.transform }),
+      props,
+    }
+    const locked = props.settings.lockAspect && before?.props.settings.lockAspect === false
+    applyChanges([{ before, after: locked ? alignPlotAxes(after) : after }])
+    if (!before) {
+      controller.current?.clearSelection()
+      chooseTool('select')
+    }
+  }
+
   function chooseTool(next: BoardTool) {
     updatePointerEffect(null)
     useSettings.setState({ tool: next })
@@ -202,7 +262,7 @@ function Board() {
   }
 
   function setPresentation(enabled: boolean) {
-    if (enabled && (textDraftRef.current || equationDraftRef.current)) {
+    if (enabled && (textDraftRef.current || equationDraftRef.current || plotDraftRef.current)) {
       setMessage('Confirme ou cancele a edição antes de apresentar.')
       return
     }
@@ -504,6 +564,7 @@ function Board() {
       onSelectionChange: setSelection,
       onTextEdit: openTextEditor,
       onEquationEdit: openEquationEditor,
+      onPlotEdit: openPlotEditor,
       getPageRaster: (page) => {
         const asset = documentRef.current?.asset(page.props.assetId)
         if (!asset) return undefined
@@ -554,7 +615,7 @@ function Board() {
 
     function handleShortcut(event: KeyboardEvent) {
       const target = event.target
-      if (event.defaultPrevented || shortcutsOpenRef.current ||
+      if (event.defaultPrevented || shortcutsOpenRef.current || plotDraftRef.current ||
         isTextEntry(target) || target instanceof HTMLElement && target.matches('select')) return
 
       const action = findShortcut(event, 'board')
@@ -632,13 +693,14 @@ function Board() {
         case 'zoom-out': board.zoomBy(1 / 1.2); break
         case 'zoom-reset': board.setCamera({ x: 0, y: 0, zoom: 1 }); break
         case 'open-shortcuts': showShortcuts(true); break
+        case 'new-plot': openPlotEditor(); break
         default: return
       }
       event.preventDefault()
     }
 
     function handlePaste(event: ClipboardEvent) {
-      if (fileOperation.current || !documentRef.current || shortcutsOpenRef.current) return
+      if (fileOperation.current || !documentRef.current || shortcutsOpenRef.current || plotDraftRef.current) return
       if (isTextEntry(event.target)) return
       const files = Array.from(event.clipboardData?.files ?? [])
       if (files.length) { event.preventDefault(); importAssets(files); return }
@@ -801,7 +863,7 @@ function Board() {
       <div className={`workspace dock-${dock}`}>
         <Tools dock={dock} tool={tool} favorite={favorite} favorites={favorites}
           onDock={(position) => useSettings.setState({ dock: position })}
-          onTool={chooseTool} onFavorite={pickFavorite} onEditFavorite={editFavorite} />
+          onTool={chooseTool} onPlot={() => openPlotEditor()} onFavorite={pickFavorite} onEditFavorite={editFavorite} />
         <section className="surface" aria-label="Área de desenho" aria-busy={!isReady || fileBusy}
           onDragOver={(event) => {
             if (!event.dataTransfer.types.includes('Files')) return
@@ -862,6 +924,8 @@ function Board() {
         </div>
       </footer>
       <ShortcutsPanel open={shortcutsOpen} onClose={() => showShortcuts(false)} />
+      {plotDraft && <PlotEditor initial={plotDraft.initial} editing={Boolean(plotDraft.object)}
+        onSave={commitPlot} onCancel={closePlotEditor} />}
     </main>
   )
 }

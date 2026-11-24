@@ -44,11 +44,12 @@ type Props = {
   favorite: number
   onDock: (dock: Dock) => void
   onTool: (tool: BoardTool) => void
+  onPlot: () => void
   onFavorite: (index: number) => void
   onEditFavorite: (style: BrushStyle) => void
 }
 
-export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onFavorite, onEditFavorite }: Props) {
+export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onPlot, onFavorite, onEditFavorite }: Props) {
   const [dragging, setDragging] = useState(false)
   const shape = shapeTools.find((entry) => entry.id === tool)
 
@@ -101,6 +102,14 @@ export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onFavor
             }}>
             <span aria-hidden="true" data-ui-icon>{icon}</span>{label}<small>{key}</small>
           </button>)}
+          <button type="button" aria-haspopup="dialog" aria-keyshortcuts={shortcutAria('new-plot')}
+            title={`Plano cartesiano (${shortcutLabel('new-plot')})`} onClick={(event) => {
+              const menu = event.currentTarget.closest('details')
+              if (menu) menu.open = false
+              onPlot()
+            }}>
+            <span aria-hidden="true" data-ui-icon>⊞</span>Plano cartesiano<small>{shortcutLabel('new-plot')}</small>
+          </button>
         </div>
       </details>
       <div className="favorites" role="group" aria-label="Favoritos de cor e espessura">

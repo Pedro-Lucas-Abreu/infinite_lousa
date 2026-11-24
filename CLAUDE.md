@@ -12,6 +12,12 @@
 - Use Brazilian Portuguese for interface text and English for code, comments, and identifiers.
 - The application is a client-only React and TypeScript project. Keep runtime packages and bundled assets within the license policy in the plan, and update the README inventory when dependencies change.
 
+## C1 Cartesian plots
+
+- Store a plot as a rectangular scene object with range, grid step, axis style, aspect lock and an ordered array of colored function expressions. The archive keeps the existing version 1 container. Plot geometry is derived from the same input for the editor preview, canvas, PNG and PDF.
+- The expression parser accepts only numeric expressions, the supported functions and constants. Adaptive sampling clips curves to the plot and separates discontinuity branches. Labels are ASCII and use vector PDF text. The editor caps each plot at 12 functions and each axis at 160 grid intervals.
+- Uniform selection resize preserves 1:1 scaling. Turning the lock back on after a nonuniform resize restores perpendicular axes using the current spans.
+
 ## Milestone 1 decisions
 
 - `src/core` owns scene data, coordinates, spatial queries, and stroke geometry. Keep the model serializable. Canvas contexts, `Path2D` objects and index entries are derived state.

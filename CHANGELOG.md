@@ -1,5 +1,11 @@
 # Mudanças
 
+## C1 — Plano cartesiano e gráficos
+
+- Pressione **F2** ou abra **Formas → Plano cartesiano** para inserir. Ajuste os limites, o passo, a cor, a espessura e a proporção 1:1. Com **Seleção**, dê duplo clique para editar.
+- Adicione até 12 funções por plano, cada uma com sua cor. Experimente `2x+1`, `0,5x^2`, `sqrt(x)`, `1/x` e `tan(x)`. A prévia acompanha a edição.
+- Mova, redimensione, copie ou apague o plano como os demais objetos. A grade, os eixos, a numeração e as curvas saem em vetor no PDF.
+
 ## Mais expansões LaTeX
 
 - No editor, experimente `leq`, `deg`, `infty` ou `phi` seguidos de **Tab**. São 18 novas palavras para inserir símbolos e letras gregas.

@@ -2,6 +2,8 @@ import { Unzip, UnzipInflate, zipSync } from "fflate";
 import type { SceneSnapshot } from "../core/scene";
 import { hasValidSvgPathData } from "../core/svgPath";
 import { type Affine, type BoardObject, type Brush, type EquationPath, type Point, type ShapeKind, type StrokePoint, isPageObject } from "../core/types";
+import { parsePlotExpression } from "../plot/expression";
+import { MAX_PLOT_FUNCTIONS, validatePlotSettings, type PlotSettings } from "../plot/geometry";
 
 const MAX_ARCHIVE = 128 * 1024 * 1024;
 const MAX_TOTAL = 192 * 1024 * 1024;
@@ -301,6 +303,27 @@ function validateScene(scene: unknown): SceneSnapshot {
         ...base, ...attachment, type: "equation",
         props: { latex, width, height, color, fontSize, paths: validateEquationPaths(paths) },
       };
+    }
+    if (object.type === "plot") {
+      const { color, size, functions } = props;
+      if (!isColor(color) || !finite(size) || size <= 0 || !isRecord(props.settings) ||
+          !Array.isArray(functions) || functions.length > MAX_PLOT_FUNCTIONS) {
+        throw new Error("Invalid Cartesian plot.");
+      }
+      const { xmin, xmax, ymin, ymax, step, lockAspect } = props.settings;
+      if (!finite(xmin) || !finite(xmax) || !finite(ymin) || !finite(ymax) || !finite(step) ||
+          typeof lockAspect !== "boolean") throw new Error("Invalid Cartesian plot settings.");
+      const settings: PlotSettings = { xmin, xmax, ymin, ymax, step, lockAspect };
+      if (validatePlotSettings(settings)) throw new Error("Invalid Cartesian plot settings.");
+      const validatedFunctions = functions.map((entry: unknown) => {
+        if (!isRecord(entry) || typeof entry.expression !== "string" || !isColor(entry.color)) {
+          throw new Error("Invalid Cartesian plot function.");
+        }
+        const { expression, color } = entry;
+        parsePlotExpression(expression);
+        return { expression, color };
+      });
+      return { ...base, ...attachment, type: "plot", props: { width, height, color, size, settings, functions: validatedFunctions } };
     }
     if (object.type === "image" || object.type === "pdfPage") {
       if (!isId(props.assetId) || object.parentId !== undefined ||

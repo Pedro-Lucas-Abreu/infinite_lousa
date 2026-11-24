@@ -27,6 +27,7 @@ Pressione **?** ou abra **Arquivo → Atalhos** para consultar a lista completa,
 | Inserir e editar texto | `T` e clique na lousa. Dê duplo clique em um texto com **Texto** ou **Seleção** para editar. `Enter` confirma, `Shift+Enter` insere nova linha e `Esc` cancela |
 | Inserir e editar equação | `Q` abre o editor LaTeX no ponteiro ou no centro da lousa. `Enter` insere. Com **Seleção**, dê duplo clique na equação para reabrir o código |
 | Desenhar formas | `L` linha, `A` seta, `W` retângulo, `O` elipse e `C` polígono. Arraste para desenhar. No polígono, clique nos vértices e confirme com `Enter` ou duplo clique |
+| Inserir e editar plano cartesiano | `F2` ou **Formas → Plano cartesiano** para inserir. Com **Seleção** ou **Laço**, dê duplo clique para editar |
 | Restringir formas | Segure `Shift` para ângulos de 45° em linhas, setas ou segmentos do polígono e para desenhar quadrados ou círculos |
 | Suavizar o traço | Controle Estabilizador de 0 a 100 |
 | Mover a lousa | O botão direito arrasta a lousa. Também funcionam Espaço ou Ctrl + arrastar e a ferramenta Mão (`M`) |
@@ -44,6 +45,8 @@ Pressione **?** ou abra **Arquivo → Atalhos** para consultar a lista completa,
 
 Experimente `2x = 10`, `x_1^2`, `\frac{1}{2}`, `\sqrt{x}`, `\sqrt[3]{x}` e `\log x + \ln x`. Para letras gregas e símbolos, use por exemplo `\alpha`, `\le`, `\ge`, `\ne`, `\pm` e `\infty`. A equação usa a cor ativa ao ser inserida e permanece vetorial na lousa e no PDF.
 
+Em um plano cartesiano, ajuste os limites dos eixos, o passo e a proporção 1:1. Use **Adicionar função** para desenhar várias curvas, cada uma com sua cor. A ajuda no editor descreve a sintaxe. Exemplos incluem `2x+1`, `0,5x^2`, `2^x`, `sqrt(x)`, `abs(x)`, `1/x` e `sin(x)`. Use vírgula ou ponto como separador decimal. `log(x)` usa base 10, `ln(x)` usa base natural e as funções trigonométricas usam radianos.
+
 As páginas PDF entram travadas para anotação e geram quadros na ordem. Em **Quadros**, destrave uma página para movê-la ou desative a criação automática antes de importar. Ao mover uma página, a tinta ancorada e o quadro vinculado a acompanham. Na exportação, o PDF de origem é incorporado quando possível. Páginas incompatíveis são renderizadas em alta resolução e a lousa informa quantas usaram essa alternativa.
 
 ## Salvamento e uso offline
@@ -59,12 +62,14 @@ Um `.board` é um ZIP de um único volume com entradas Store (0) ou Deflate (8).
 | Entrada | Conteúdo |
 | --- | --- |
 | `manifest.json` | Objeto com `format: "board"`, `version: 1`, `scenePath: "scene.json"` e `assets`. Cada item em `assets` tem `id`, `path: "assets/<id>"`, `mime` e `size` em bytes. Use `assets: []` quando a lousa não tiver arquivos incorporados. |
-| `scene.json` | Objeto com `version: 1` e lista `objects`. Aceita traços, imagens, páginas PDF, quadros, texto, formas e equações. Arquivos anteriores continuam legíveis. |
+| `scene.json` | Objeto com `version: 1` e lista `objects`. Aceita traços, imagens, páginas PDF, quadros, texto, formas, equações e planos cartesianos. Arquivos anteriores continuam legíveis. |
 | `assets/<id>` | Bytes do PDF ou da imagem catalogados no manifesto. |
 
 `image` e `pdfPage` usam `props` com `width`, `height` e `assetId`. `pdfPage` também tem `pageIndex` a partir de zero. `frame` usa `width`, `height`, `name` e `order`. Traços e quadros podem ter `parentId` com o ID de uma página PDF. Traços têm `brush.opacity` opcional para marca-texto.
 
 Uma `equation` guarda o `latex` editável, `width`, `height`, `fontSize`, `color` e `paths`. Cada caminho contém os comandos SVG em `d` e sua transformação afim local. As prévias, o cursor e os efeitos de apresentação não fazem parte do arquivo.
+
+Um `plot` guarda `width`, `height`, `color`, `size`, `settings` com `xmin`, `xmax`, `ymin`, `ymax`, `step` e `lockAspect`, e uma lista `functions` com `expression` e `color` em cada item.
 
 Cada traço tem `id`, `type`, `transform`, `zIndex`, `locked` e `props`. IDs têm de 1 a 128 caracteres e usam letras ASCII, dígitos, `_` e `-`. `transform` é uma matriz afim invertível `[a, b, c, d, e, f]`. Ela leva o ponto local `(x, y)` a `(ax + cy + e, bx + dy + f)` no mundo, com Y crescente para baixo. `zIndex` define a ordem de pintura. `props` contém `version: 1`, uma lista `points` com `x`, `y` e pressão opcional entre 0 e 1, e `brush` com `color` em `#RRGGBB`, `size` em unidades locais, `stabilizer` entre 0 e 100 e `simulatePressure` booleano.
 

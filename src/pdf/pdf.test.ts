@@ -6,11 +6,12 @@ import {
   PDFRawStream, rgb, StandardFonts,
 } from "@cantoo/pdf-lib";
 import { createStroke } from "../core/stroke";
-import type { EquationObject, FrameObject, PageObject, ShapeObject, TextObject } from "../core/types";
+import type { EquationObject, FrameObject, PageObject, PlotObject, ShapeObject, TextObject } from "../core/types";
 import type { BoardAsset, PortableBoard } from "../documents/archive";
 import { exportPdf } from "./export";
 import { sourceGeometry } from "./source";
 import { renderEquation } from "../equations/render";
+import { DEFAULT_PLOT_SETTINGS } from "../plot/geometry";
 
 const decoder = new TextDecoder("latin1");
 const unchanged = [1, 0, 0, 1, 0, 0] as const;
@@ -186,6 +187,38 @@ test("exports a rendered equation as filled vector paths, including its fraction
   assert.equal((content.match(/^f$/gm) ?? []).length, geometry.paths.length + 1);
   assert.match(content, / c(?:\r?\n|\s)/);
   assert.ok(geometry.paths.some(({ d }) => / H .* V .* H .* Z$/.test(d)));
+  assert.ok(reopened.context.enumerateIndirectObjects().every(([, object]) =>
+    !(object instanceof PDFRawStream) || object.dict.get(PDFName.of("Subtype")) !== PDFName.of("Image")));
+});
+
+test("exports transformed Cartesian axes, labels, and separate curve branches as vectors", async () => {
+  const plot: PlotObject = {
+    id: "plot", type: "plot", transform: [1, 0, 0, 1, 20, 30], locked: false, zIndex: 0,
+    props: {
+      width: 420, height: 300, color: "#192038", size: 2,
+      settings: DEFAULT_PLOT_SETTINGS,
+      functions: [
+        { expression: "1/x", color: "#ff0000" },
+        { expression: "2x+1", color: "#0000ff" },
+      ],
+    },
+  };
+  const { bytes, fallbackTexts } = await exportPdf({ scene: { version: 1, objects: [plot] }, assets: [] },
+    { background: "#171e2d" });
+  assert.equal(fallbackTexts, 0);
+  const reopened = await PDFDocument.load(bytes);
+  assert.deepEqual(reopened.getPage(0).getSize(), { width: 420, height: 300 });
+  const content = pageStreams(reopened, 0);
+  assert.match(content, /1 0 0 1 20 30 cm/);
+  assert.match(content, /\/PlotGridOpacity[^\s]+ gs/);
+  const contrasted = [236, 242, 255].map((value) => value / 255).join(" ");
+  assert.ok(content.includes(`${contrasted} RG`));
+  const redCurve = content.slice(content.indexOf("1 0 0 RG"), content.indexOf("0 0 1 RG"));
+  assert.ok((redCurve.match(/ m$/gm) ?? []).length >= 2, "the reciprocal curve uses independent subpaths");
+  assert.match(redCurve, / l\s+S/);
+  assert.match(content, /0 0 1 RG[\s\S]+ l\s+S/);
+  assert.match(content, /<78> Tj/i);
+  assert.match(content, /<2D3130> Tj/i);
   assert.ok(reopened.context.enumerateIndirectObjects().every(([, object]) =>
     !(object instanceof PDFRawStream) || object.dict.get(PDFName.of("Subtype")) !== PDFName.of("Image")));
 });

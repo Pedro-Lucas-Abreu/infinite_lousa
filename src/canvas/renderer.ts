@@ -2,7 +2,7 @@ import { viewportBounds, worldToScreen } from '../core/camera'
 import type { Scene } from '../core/scene'
 import { strokeOutline } from '../core/stroke'
 import type { Affine, BoardObject, Bounds, Camera, PageObject, Point, Stroke, Viewport } from '../core/types'
-import { drawEquationObject, drawShape, drawTextObject } from './drawings'
+import { drawEquationObject, drawPlotObject, drawShape, drawTextObject } from './drawings'
 import { rectanglePoints, selectionHandles } from './geometry'
 
 export type BoardBackground = 'white' | 'dark' | 'dotted' | 'grid' | 'millimeter'
@@ -178,6 +178,10 @@ export class CanvasRenderer {
     }
     if (object.type === 'equation') {
       drawEquationObject(context, object, this.boardColor(object.props.color, object.parentId))
+      return
+    }
+    if (object.type === 'plot') {
+      drawPlotObject(context, object, (color) => this.boardColor(color, object.parentId))
       return
     }
     const [a, b, c, d] = object.transform

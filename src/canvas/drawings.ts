@@ -1,7 +1,10 @@
 import { shapeArrowHead } from "../core/shapes";
-import type { EquationObject, ShapeObject, TextObject } from "../core/types";
+import type { EquationObject, PlotObject, ShapeObject, TextObject } from "../core/types";
+import { getPlotGeometry, type PlotLine } from "../plot/geometry";
 
 export const TEXT_LINE_HEIGHT = 1.25;
+export const PLOT_GRID_OPACITY = 0.28;
+export const PLOT_GRID_WIDTH_RATIO = 0.55;
 const equationPaths = new WeakMap<EquationObject["props"]["paths"], readonly Path2D[]>();
 
 function shapePath(shape: ShapeObject): Path2D {
@@ -73,4 +76,50 @@ export function drawEquationObject(context: CanvasRenderingContext2D, object: Eq
     context.fill(path);
     context.restore();
   }
+}
+
+function plotLinePath(lines: readonly PlotLine[]): Path2D {
+  const path = new Path2D();
+  for (const { from, to } of lines) {
+    path.moveTo(from.x, from.y);
+    path.lineTo(to.x, to.y);
+  }
+  return path;
+}
+
+export function drawPlotObject(context: CanvasRenderingContext2D, object: PlotObject, resolveColor: (color: string) => string): void {
+  const { width, height, color, size, settings, functions } = object.props;
+  const { grid, axes, labels, curves, fontSize } = getPlotGeometry(settings, width, height, functions);
+  const ink = resolveColor(color);
+
+  context.save();
+  context.strokeStyle = ink;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.lineWidth = size * PLOT_GRID_WIDTH_RATIO;
+  context.globalAlpha = PLOT_GRID_OPACITY;
+  context.stroke(plotLinePath(grid));
+
+  context.globalAlpha = 1;
+  context.lineWidth = size;
+  context.stroke(plotLinePath(axes));
+  for (const curve of curves) {
+    const path = new Path2D();
+    for (const [first, ...points] of curve.paths) {
+      if (!first) continue;
+      path.moveTo(first.x, first.y);
+      for (const point of points) path.lineTo(point.x, point.y);
+    }
+    context.strokeStyle = resolveColor(curve.color);
+    context.stroke(path);
+  }
+
+  context.fillStyle = ink;
+  context.font = `${fontSize}px Arial, sans-serif`;
+  context.textBaseline = "alphabetic";
+  for (const { text, x, y, align } of labels) {
+    context.textAlign = align;
+    context.fillText(text, x, y);
+  }
+  context.restore();
 }

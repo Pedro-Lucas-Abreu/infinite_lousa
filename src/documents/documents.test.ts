@@ -3,7 +3,9 @@ import { describe, it } from "node:test";
 import { Zip, ZipDeflate, zipSync } from "fflate";
 import { Scene, objectBounds } from "../core/scene";
 import { createStroke } from "../core/stroke";
-import type { Brush, EquationObject, FrameObject, PageObject, ShapeObject, Stroke, TextObject } from "../core/types";
+import type { Brush, EquationObject, FrameObject, PageObject, PlotObject, ShapeObject, Stroke, TextObject } from "../core/types";
+import { DEFAULT_PLOT_SETTINGS } from "../plot/geometry";
+import { alignPlotAxes } from "../plot/object";
 import { type PortableBoard, readArchive, writeArchive } from "./archive";
 import { BoardDocument } from "./store";
 
@@ -47,6 +49,30 @@ describe("portable .board", () => {
   it("round-trips local geometry and original asset bytes", () => {
     assert.deepEqual(readArchive(writeArchive(fixture)), fixture);
     assert.deepEqual(readArchive(zipSync(entries(), { level: 0 })), fixture);
+  });
+
+  it("round-trips editable plots in v1 and rejects invalid scales or expressions", () => {
+    const plot: PlotObject = {
+      id: "graph", type: "plot", locked: false, zIndex: 4, transform: [1, 0, 0, 1, 40, 70],
+      props: {
+        width: 480, height: 300, size: 2, color: "#192038", settings: DEFAULT_PLOT_SETTINGS,
+        functions: [{ expression: "0,5x + 1", color: "#2158ad" }, { expression: "tan(x)", color: "#bd3b47" }],
+      },
+    };
+    const withPlot = (props: PlotObject["props"] = plot.props): PortableBoard => ({
+      scene: { version: 1, objects: [...fixture.scene.objects, { ...plot, props }] }, assets: fixture.assets,
+    });
+    assert.deepEqual(readArchive(writeArchive(withPlot())), withPlot());
+    assert.throws(() => writeArchive(withPlot({ ...plot.props, settings: { ...DEFAULT_PLOT_SETTINGS, step: 0 } })), /plot settings/);
+    assert.throws(() => writeArchive(withPlot({ ...plot.props, functions: [{ expression: "foo(x)", color: "#2158ad" }] })), /Nome desconhecido/);
+
+    const aligned = alignPlotAxes({ ...plot, transform: [0, 2, -1, 0.5, 40, 70] });
+    const [a, b, c, d, x, y] = aligned.transform;
+    assert.equal(a * c + b * d, 0);
+    assert.equal(Math.hypot(a, b), Math.hypot(c, d));
+    assert.deepEqual([x, y], [40, 70]);
+    assert.ok(Math.abs(aligned.props.width * Math.hypot(a, b) - plot.props.width * 2) < 1e-10);
+    assert.ok(Math.abs(aligned.props.height * Math.hypot(c, d) - plot.props.height * Math.hypot(-1, 0.5)) < 1e-10);
   });
 
   it("accepts a ZIP written with streamed DEFLATE entries and data descriptors", () => {

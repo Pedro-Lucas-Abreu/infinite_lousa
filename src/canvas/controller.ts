@@ -1,7 +1,7 @@
 import { panBy, screenToWorld, worldToScreen, zoomAt } from '../core/camera'
 import { objectBounds, type Scene } from '../core/scene'
 import { StrokeInput } from '../core/stroke'
-import type { Affine, BoardChange, BoardObject, Bounds, Camera, EquationObject, FrameObject, Point, ShapeKind,
+import type { Affine, BoardChange, BoardObject, Bounds, Camera, EquationObject, FrameObject, PlotObject, Point, ShapeKind,
   ShapeObject, Stroke, StrokePoint, TextObject, Viewport } from '../core/types'
 import { acceptsPointer, findShortcut, pointerButtons, pointerConstrained, secondaryButtonMask,
   shouldExtendSelection, shouldStartPan, shouldZoomWithWheel } from '../shortcuts'
@@ -56,6 +56,7 @@ export interface BoardControllerOptions {
   getPageRaster?: GetPageRaster
   onTextEdit?: (request: TextEditRequest) => void
   onEquationEdit?: (request: EquationEditRequest) => void
+  onPlotEdit?: (object: PlotObject) => void
 }
 
 interface InkSample {
@@ -818,8 +819,9 @@ export class BoardController {
       const rect = this.options.liveCanvas.getBoundingClientRect()
       const screen = eventPoint(event, rect)
       const object = this.editableAt(screenToWorld(screen, this.camera, this.renderer.viewport))
-      const action = object?.type === 'equation' ? 'edit-equation' : 'edit-text'
-      if (object && acceptsPointer(action, event.button)) this.editExisting(object)
+      if (!object) return
+      const action = object.type === 'equation' ? 'edit-equation' : object.type === 'plot' ? 'edit-plot' : 'edit-text'
+      if (acceptsPointer(action, event.button)) this.editExisting(object)
     }
   }
 
@@ -951,17 +953,22 @@ export class BoardController {
     this.refreshLive()
   }
 
-  private editableAt(point: Point): TextObject | EquationObject | undefined {
+  private editableAt(point: Point): TextObject | EquationObject | PlotObject | undefined {
     const candidates = this.options.scene.search(boundsFromPoints([point]))
     for (let i = candidates.length - 1; i >= 0; i--) {
       const candidate = candidates[i]!
-      if ((candidate.type === 'text' || candidate.type === 'equation') && !candidate.locked && hitObject(candidate, point, 0)) return candidate
+      if ((candidate.type === 'text' || candidate.type === 'equation' || candidate.type === 'plot') &&
+        !candidate.locked && hitObject(candidate, point, 0)) return candidate
       if (candidate.type === 'pdfPage' && hitObject(candidate, point, 0)) break
     }
     return undefined
   }
 
-  private editExisting(object: TextObject | EquationObject): void {
+  private editExisting(object: TextObject | EquationObject | PlotObject): void {
+    if (object.type === 'plot') {
+      this.options.onPlotEdit?.(object)
+      return
+    }
     const point = { x: object.transform[4], y: object.transform[5] }
     const screen = worldToScreen(point, this.camera, this.renderer.viewport)
     if (object.type === 'equation') this.options.onEquationEdit?.({ point, screen, object })
@@ -1097,7 +1104,8 @@ export class BoardController {
     const minSize = 1 / this.camera.zoom
     let xScale = width === 0 ? 1 : Math.max(minSize / Math.abs(width), 1 + (end.x - start.x) / width)
     let yScale = height === 0 ? 1 : Math.max(minSize / Math.abs(height), 1 + (end.y - start.y) / height)
-    if (constrained || gesture.objects.some((object) => object.type === 'frame' && this.selection.has(object.id))) {
+    if (constrained || gesture.objects.some((object) =>
+      (object.type === 'frame' && this.selection.has(object.id)) || (object.type === 'plot' && object.props.settings.lockAspect))) {
       xScale = yScale = Math.max(xScale, yScale)
     }
     return this.around(mode.origin, [xScale, 0, 0, yScale, 0, 0])
