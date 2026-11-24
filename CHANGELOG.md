@@ -1,5 +1,11 @@
 # Mudanças
 
+## Etapa B — Equações e apresentação
+
+- **Q** abre o editor de equações com prévia ao digitar. **Enter** insere na cor ativa. Em **Seleção**, dê duplo clique na equação para alterar o LaTeX.
+- Use a seleção para mover, redimensionar, copiar ou excluir equações. As fórmulas saem em vetor no PDF.
+- **F** apresenta a lousa. Aproxime o mouse da borda superior para ver os controles. Use **K** para o laser e **S** para o spotlight.
+
 ## Etapa B — Texto e formas
 
 - Pressione **T** e clique para digitar. Dê duplo clique em um texto com **Texto** ou **Seleção** para editar. **Enter** salva, **Shift+Enter** cria uma nova linha e **Esc** cancela.

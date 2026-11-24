@@ -35,4 +35,17 @@
 
 - Classroom feedback reported native text selection on the chrome of the app and requested right-button panning. Suppress native selection on the interface and preserve it in inputs and editors. Right drag pans, middle click is inert, and Ctrl+A on the board selects unlocked objects.
 - Stage B adds an HTML textarea over the canvas and serializable text and shape objects. Double-click editing applies in the Text and Select tools. Shift snaps edges to 45-degree increments and makes rectangles and ellipses square or round. Shape exports stay vector. PDF text uses the standard Helvetica face, with a raster fallback for objects with characters unsupported by the PDF font. The application reports fallback counts.
-- Stop after publishing text and shapes for classroom testing. Present the KaTeX and MathJax comparison and await the user's choice before adding equation support.
+- Text and shapes shipped separately for classroom testing. The user delegated the equation engine decision and authorized continuing without another approval. Equations remain distinct from text objects. Presentation uses the existing live canvas for its cursor, laser and spotlight. The top controls reserve their own space when shown.
+
+### Equation engine decision
+
+Use MathJax 4.1.3 with the STIX Two SVG font. MathJax emits glyph paths and rule rectangles directly. One adapter flattens their local transforms and normalizes them to the equation's box. Canvas, SVG preview, PNG and PDF reuse those coordinates. KaTeX emits HTML and MathML. Vector export with KaTeX would require adapting CSS layout and extracting glyph outlines from its fonts. Both licenses fit the project. MathJax runtime code is Apache-2.0 and its STIX Two outlines are OFL-1.1. KaTeX runtime code is MIT and its fonts are OFL-1.1. [MathJax SVG output](https://docs.mathjax.org/en/latest/output/svg.html) · [KaTeX output options](https://katex.org/docs/options) · [KaTeX font license](https://github.com/KaTeX/KaTeX/issues/339)
+
+| Candidate | Minified files | Gzip sum | Bytes used for first fraction | First / repeated fraction |
+| --- | ---: | ---: | ---: | ---: |
+| KaTeX 0.19.1 HTML with CSS and WOFF2 | 550,948 B | 341,539 B | 333,868 B | 15.3 / 0.5 ms |
+| MathJax 4.1.3 SVG with STIX Two | 1,238,946 B | 400,486 B | 966,580 B | 29.3 / 1.6 ms |
+
+Measurements on 2026-11-24 use five alternating runs on Chrome 157.0.8103.80 headless on Windows, a 1080 × 720 viewport, fresh navigation, disabled HTTP cache and an uncompressed loopback server. Times are medians from import to the first fraction rendered, followed by a repeat with modules and fonts loaded. KaTeX time ends at visible HTML after `document.fonts.ready`. MathJax time includes drawing the SVG paths through `Path2D`. Gzip is the sum of separately compressed files. KaTeX numbers exclude the additional code needed for vector export. The roughly 59 kB difference in gzip and 14 ms on the local first render were acceptable for the shorter vector integration. MathJax starts on demand in the editor, and the PWA includes its local resources in the offline build.
+
+Persist the editable LaTeX and normalized vector paths as a separate `.board` v1 object. Text remains a plain text object. Inserted equations use the current pen color. SVG font ranges shipped beyond the base are Latin, double-struck and calligraphic. The app does not load a MathJax CDN or expose custom packages in the editor.

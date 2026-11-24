@@ -1,6 +1,6 @@
 # Lousa
 
-Lousa digital de código aberto para aulas de matemática. Inclui caneta, marca-texto, borracha, seleção, fundos, imagens, anotação de PDFs, quadros, exportação, texto e formas. A lousa mantém autosave e arquivos `.board` e pode ser instalada para uso offline.
+Lousa digital de código aberto para aulas de matemática. Inclui caneta, marca-texto, borracha, seleção, fundos, imagens, anotação de PDFs, quadros, exportação, texto, formas, equações e apresentação. A lousa mantém autosave e arquivos `.board` e pode ser instalada para uso offline.
 
 ## Executar localmente
 
@@ -23,6 +23,7 @@ Abra a URL exibida no terminal no Chrome ou Edge. O Firefox é o navegador secun
 | Transformar seleção | Arraste a seleção ou seus puxadores. Use `Alt` + setas para mover, `Alt` + `+` ou `−` para redimensionar e `R` / `Shift+R` para girar |
 | Copiar, recortar, colar, duplicar e excluir | `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Ctrl+D` e `Delete` |
 | Inserir e editar texto | `T` e clique na lousa. Dê duplo clique em um texto com **Texto** ou **Seleção** para editar. `Enter` confirma, `Shift+Enter` insere nova linha e `Esc` cancela |
+| Inserir e editar equação | `Q` abre o editor LaTeX no ponteiro ou no centro da lousa. `Enter` insere. Com **Seleção**, dê duplo clique na equação para reabrir o código |
 | Desenhar formas | `L` linha, `A` seta, `W` retângulo, `O` elipse e `C` polígono. Arraste para desenhar. No polígono, clique nos vértices e confirme com `Enter` ou duplo clique |
 | Restringir formas | Segure `Shift` para ângulos de 45° em linhas, setas ou segmentos do polígono e para desenhar quadrados ou círculos |
 | Suavizar o traço | Controle Estabilizador de 0 a 100 |
@@ -37,6 +38,9 @@ Abra a URL exibida no terminal no Chrome ou Edge. O Firefox é o navegador secun
 | Travar uma página | `U` na página selecionada ou no quadro vinculado. Também disponível em **Quadros** |
 | Criar e navegar quadros | `N` cria um quadro 16:9. Use as setas para navegar e `Enter` para enquadrar |
 | Exportar | `Y` para PDF por quadros, `Shift+Y` para PDF de todo o conteúdo e `J` para PNG do quadro atual |
+| Apresentar | `F` alterna a apresentação. Mova o ponteiro até a borda superior para mostrar a faixa de controles. `K` ativa o laser e `S` o spotlight |
+
+Experimente `2x = 10`, `x_1^2`, `\frac{1}{2}`, `\sqrt{x}`, `\sqrt[3]{x}` e `\log x + \ln x`. Para letras gregas e símbolos, use por exemplo `\alpha`, `\le`, `\ge`, `\ne`, `\pm` e `\infty`. A equação usa a cor ativa ao ser inserida e permanece vetorial na lousa e no PDF.
 
 As páginas PDF entram travadas para anotação e geram quadros na ordem. Em **Quadros**, destrave uma página para movê-la ou desative a criação automática antes de importar. Ao mover uma página, a tinta ancorada e o quadro vinculado a acompanham. Na exportação, o PDF de origem é incorporado quando possível. Páginas incompatíveis são renderizadas em alta resolução e a lousa informa quantas usaram essa alternativa.
 
@@ -53,10 +57,12 @@ Um `.board` é um ZIP de um único volume com entradas Store (0) ou Deflate (8).
 | Entrada | Conteúdo |
 | --- | --- |
 | `manifest.json` | Objeto com `format: "board"`, `version: 1`, `scenePath: "scene.json"` e `assets`. Cada item em `assets` tem `id`, `path: "assets/<id>"`, `mime` e `size` em bytes. Use `assets: []` quando a lousa não tiver arquivos incorporados. |
-| `scene.json` | Objeto com `version: 1` e lista `objects`. Aceita traços, imagens, páginas PDF, quadros, texto e formas. Arquivos anteriores continuam legíveis. |
+| `scene.json` | Objeto com `version: 1` e lista `objects`. Aceita traços, imagens, páginas PDF, quadros, texto, formas e equações. Arquivos anteriores continuam legíveis. |
 | `assets/<id>` | Bytes do PDF ou da imagem catalogados no manifesto. |
 
 `image` e `pdfPage` usam `props` com `width`, `height` e `assetId`. `pdfPage` também tem `pageIndex` a partir de zero. `frame` usa `width`, `height`, `name` e `order`. Traços e quadros podem ter `parentId` com o ID de uma página PDF. Traços têm `brush.opacity` opcional para marca-texto.
+
+Uma `equation` guarda o `latex` editável, `width`, `height`, `fontSize`, `color` e `paths`. Cada caminho contém os comandos SVG em `d` e sua transformação afim local. As prévias, o cursor e os efeitos de apresentação não fazem parte do arquivo.
 
 Cada traço tem `id`, `type`, `transform`, `zIndex`, `locked` e `props`. IDs têm de 1 a 128 caracteres e usam letras ASCII, dígitos, `_` e `-`. `transform` é uma matriz afim invertível `[a, b, c, d, e, f]`. Ela leva o ponto local `(x, y)` a `(ax + cy + e, bx + dy + f)` no mundo, com Y crescente para baixo. `zIndex` define a ordem de pintura. `props` contém `version: 1`, uma lista `points` com `x`, `y` e pressão opcional entre 0 e 1, e `brush` com `color` em `#RRGGBB`, `size` em unidades locais, `stabilizer` entre 0 e 100 e `simulatePressure` booleano.
 
@@ -113,8 +119,12 @@ Licenças declaradas pelos pacotes da Etapa A, incluindo dependências transitiv
 | MIT | `@cantoo/pdf-lib` 2.11.1, `culori` 4.0.2, `html-entities` 2.6.0, `node-html-better-parser` 1.5.9 |
 | 0BSD | `tslib` 2.9.1 |
 | Apache-2.0 | `pdfjs-dist` 6.5.438 (API e workers) |
+| Apache-2.0 | `@mathjax/src` 4.1.3 e os módulos do adaptador `@mathjax/mathjax-stix2-font` 4.1.3 |
+| OFL-1.1 | Contornos tipográficos STIX Two usados nas fórmulas |
 
 O build inclui os CMaps Adobe e fontes Foxit sob BSD-3-Clause, OpenJPEG sob BSD-2-Clause, qcms sob MIT e o decodificador JBIG2 do PDFium sob BSD-3-Clause e Apache-2.0. As fontes Liberation licenciadas sob GPL-2.0 e os recursos opcionais fora dessa seleção ficam fora do build. Os avisos acompanham o pacote publicado. [Recursos da distribuição do PDF.js](https://github.com/mozilla/pdf.js/tree/v6.5.438/external)
+
+As equações usam o MathJax com saída em caminhos SVG e dados locais da fonte STIX Two. O módulo carrega quando o editor é usado. Os avisos do MathJax e da fonte acompanham o build. [Saída SVG do MathJax](https://docs.mathjax.org/en/latest/output/svg.html) · [Licença STIX Two](src/equations/STIX-OFL.txt)
 
 O pacote opcional com o binário do esbuild varia conforme o sistema operacional e a arquitetura. Consulte as licenças instaladas na sua plataforma com o comando abaixo.
 
