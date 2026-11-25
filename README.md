@@ -120,7 +120,7 @@ Os comandos de navegador usam instalações locais do Chrome e do Edge e a compi
 
 ## Hospedagem
 
-A [lousa no GitHub Pages](https://pedro-lucas-abreu.github.io/whiteboard_/) usa o build estático gerado em `dist/`. Para relatar um problema observado em aula, informe o navegador, o que estava fazendo e o que ocorreu. [GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)
+A [lousa no GitHub Pages](https://pedro-lucas-abreu.github.io/infinite_lousa/) usa o build estático gerado em `dist/`. Para relatar um problema observado em aula, informe o navegador, o que estava fazendo e o que ocorreu. [GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)
 
 ## Licenças
 
