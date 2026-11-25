@@ -38,6 +38,7 @@
 
 - Recognition uses the pen's raw mouse samples in CSS pixels. A 700 ms hold within 3 px triggers a preview when the trace fits a supported shape. Short or ambiguous traces remain ink. Instrument snapping and highlighting keep their existing behavior.
 - Releasing the mouse records the original ink and then replaces it with a standard shape of the same color, thickness and stacking order. One undo restores the ink and a second undo removes it. The toggle is stored separately as a browser preference.
+- Closed outlines compare the closure gap to 15% of their screen span. Concentrated turns identify polygon corners. Each recognized polygon must also fit the trace along its edges. Shallow corners and repeated radial deviations help keep many-sided outlines out of the ellipse fallback. The 5° rectangle snap emits axis-aligned rectangles. Tilted rectangles and other quadrilaterals reuse polygon geometry.
 
 ## Milestone 1 decisions
 

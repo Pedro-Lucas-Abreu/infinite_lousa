@@ -1,5 +1,11 @@
 # Mudanças
 
+## C3 — Mais formas e ajustes de reconhecimento
+
+- A pausa de **0,7 s** também reconhece losangos, trapézios, pentágonos e hexágonos. Pentágonos e hexágonos são regularizados quando todos os cantos se ajustam.
+- Retângulos e quadrados quase alinhados endireitam. Os inclinados mantêm a rotação como polígonos de quatro vértices. Nos trapézios, as bases ficam paralelas.
+- Laços arredondados podem virar círculos ou elipses. Letras pequenas, rabiscos, curvas abertas e contornos poligonais fora da lista permanecem como tinta quando o ajuste é incerto.
+
 ## C3 — Reconhecimento de formas
 
 - Com a **Caneta**, desenhe e mantenha o botão esquerdo pressionado no fim do traço por cerca de **0,7 s**. Se o desenho encaixar, a prévia vira reta, círculo, elipse, retângulo, quadrado, triângulo ou seta.
