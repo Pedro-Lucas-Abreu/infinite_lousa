@@ -1,6 +1,7 @@
 import { getStroke } from "perfect-freehand";
 import { screenToWorld } from "./camera";
 import type { Brush, Camera, Point, Stroke, StrokePoint, Viewport } from "./types";
+import { clipInkToExterior, type SolidBoundary } from "../instruments/solids";
 
 const OUTLINE_BRUSH_SIZE = 8;
 const completeOutlines = new WeakMap<Stroke, readonly Point[]>();
@@ -77,7 +78,7 @@ export function createStroke(
   const localPoints = points.map((point) => withPressure(
     { x: point.x - anchor.x, y: point.y - anchor.y },
     simulatePressure ? undefined : point.pressure,
-  ));
+  )).map((point, i) => points[i].breakBefore ? { ...point, breakBefore: true as const } : point);
   if (localPoints.some(({ x, y }) => !Number.isFinite(x) || !Number.isFinite(y))) {
     throw new RangeError("Stroke coordinates must be finite.");
   }
@@ -101,6 +102,12 @@ export function strokeOutline(stroke: Stroke, complete = true): readonly Point[]
   if (cached) return cached;
 
   const { brush, points } = stroke.props;
+  const outline = outlineFor(points, brush, complete);
+  if (complete) completeOutlines.set(stroke, outline);
+  return outline;
+}
+
+function outlineFor(points: readonly StrokePoint[], brush: Brush, complete: boolean): readonly Point[] {
   const stabilization = stabilizerFraction(brush.stabilizer);
   // Normalize to the nib size because perfect-freehand uses fixed distance thresholds.
   const scale = brush.size / OUTLINE_BRUSH_SIZE;
@@ -111,7 +118,7 @@ export function strokeOutline(stroke: Stroke, complete = true): readonly Point[]
     input.push(dot, dot);
   }
 
-  const outline = getStroke(input, {
+  return getStroke(input, {
     size: OUTLINE_BRUSH_SIZE,
     simulatePressure: brush.simulatePressure,
     thinning: 0.45,
@@ -119,26 +126,29 @@ export function strokeOutline(stroke: Stroke, complete = true): readonly Point[]
     smoothing: interpolate(0.3, 0.55, stabilization),
     last: complete,
   }).map(([x, y]) => ({ x: x * scale, y: y * scale }));
-  if (complete) completeOutlines.set(stroke, outline);
-  return outline;
 }
 
-export type StrokeRoute = (point: Point, previous?: Point) => readonly Point[];
+export function strokeContours(stroke: Stroke, complete = true): readonly (readonly Point[])[] {
+  return stroke.props.contours ?? [strokeOutline(stroke, complete)];
+}
+
+export type StrokeRoute = (point: Point, previous?: Point) => readonly StrokePoint[];
+type Sample = { point: StrokePoint; guided: boolean };
 
 export class StrokeInput {
-  #points: StrokePoint[] = [];
+  #samples: Sample[] = [];
   #filter: OneEuroFilter;
   #lastPosition?: Point;
   #lastPressure: number | undefined;
   #lastGroupStart = 0;
   #lastRoute?: StrokeRoute;
 
-  constructor(private readonly brush: Brush) {
+  constructor(private readonly brush: Brush, private readonly boundaries: readonly SolidBoundary[] = []) {
     this.#filter = new OneEuroFilter(stabilizerFraction(brush.stabilizer));
   }
 
   get pointCount(): number {
-    return this.#points.length;
+    return this.#samples.length;
   }
 
   add(screenPoint: StrokePoint, timestampMs: number, camera: Camera, viewport: Viewport, route?: StrokeRoute): void {
@@ -150,26 +160,56 @@ export class StrokeInput {
     this.#lastPressure = withPressure(point, screenPoint.pressure).pressure ?? this.#lastPressure;
     this.#lastRoute = route;
 
-    const groupStart = this.#points.length;
-    for (const position of route?.(point, this.#points.at(-1)) ?? [point]) {
-      const sample = withPressure(position, screenPoint.pressure);
-      const previous = this.#points.at(-1);
-      if (previous?.x === sample.x && previous.y === sample.y && previous.pressure === sample.pressure) continue;
-      this.#points.push(sample);
+    const groupStart = this.#samples.length;
+    for (const position of route?.(point, this.#samples.at(-1)?.point) ?? [point]) {
+      const sample = this.sample(position, screenPoint.pressure, Boolean(route));
+      const previous = this.#samples.at(-1);
+      if (!sample.point.breakBefore && previous?.guided === sample.guided && previous.point.x === sample.point.x &&
+        previous.point.y === sample.point.y && previous.point.pressure === sample.point.pressure) continue;
+      this.#samples.push(sample);
     }
-    if (this.#points.length !== groupStart) this.#lastGroupStart = groupStart;
+    if (this.#samples.length !== groupStart) this.#lastGroupStart = groupStart;
+  }
+
+  private sample(point: StrokePoint, pressure: number | undefined, guided: boolean): Sample {
+    return { guided, point: { ...withPressure(point, pressure), ...(point.breakBefore ? { breakBefore: true as const } : {}) } };
+  }
+
+  private build(id: string, zIndex: number, samples: readonly Sample[], complete: boolean): Stroke | undefined {
+    if (!samples.length) return;
+    const stroke = createStroke(id, samples.map(({ point }) => point), this.brush, zIndex);
+    if (!this.boundaries.length || !samples.some(({ guided }) => guided)) return stroke;
+    const [,,,, x, y] = stroke.transform;
+    const bodies = this.boundaries.map((body) => body.map((p) => ({ x: p.x - x, y: p.y - y })));
+    const points = stroke.props.points;
+    const contours: (readonly Point[])[] = [];
+    let start = 0;
+    for (let end = 1; end <= samples.length; end++) {
+      const next = samples[end];
+      const guided = samples[end - 1].guided;
+      if (next && next.guided === guided && !next.point.breakBefore) continue;
+      const outline = outlineFor(points.slice(start, end), stroke.props.brush, complete || Boolean(next));
+      const visible = guided ? bodies.reduce(clipInkToExterior, [outline] as readonly SolidBoundary[]) : [outline];
+      if (start === 0 && end === samples.length && visible.length === 1 && visible[0] === outline) return stroke;
+      contours.push(...visible);
+      start = next?.point.breakBefore ? end : end - 1;
+    }
+    if (!contours.length) return;
+    return { ...stroke, props: { ...stroke.props, contours } };
   }
 
   preview(): Stroke | undefined {
-    if (this.#points.length === 0) return undefined;
-    return createStroke("preview", this.#points, this.brush, 0);
+    return this.build("preview", 0, this.#samples, false);
   }
 
   finish(id: string, zIndex: number): Stroke | undefined {
     if (!this.#lastPosition) return undefined;
 
-    const preceding = this.#points.slice(0, this.#lastGroupStart);
-    const last = this.#lastRoute?.(this.#lastPosition, preceding.at(-1)) ?? [this.#lastPosition];
-    return createStroke(id, [...preceding, ...last.map((point) => withPressure(point, this.#lastPressure))], this.brush, zIndex);
+    // A guided sample can contain several detour vertices. Keep the verified path
+    // drawn so far and route the release point from its actual endpoint.
+    const preceding = this.#lastRoute ? this.#samples : this.#samples.slice(0, this.#lastGroupStart);
+    const last = this.#lastRoute?.(this.#lastPosition, preceding.at(-1)?.point) ?? [this.#lastPosition];
+    return this.build(id, zIndex, [...preceding, ...last.map((point) =>
+      this.sample(point, this.#lastPressure, Boolean(this.#lastRoute)))], true);
   }
 }

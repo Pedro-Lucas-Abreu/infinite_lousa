@@ -1,5 +1,11 @@
 # Mudanças
 
+## Correção dos instrumentos e sólidos geométricos
+
+- Passe a Caneta ou o Marca-texto rapidamente de um lado ao outro da régua, dos esquadros ou do transferidor. O traço acompanha o contorno e a tinta fica fora do corpo. Segure **Alt** para desenhar através do instrumento. Se dois instrumentos sobrepostos impedirem a conexão, pode haver uma interrupção no traço. **Ctrl+Z** desfaz o gesto inteiro.
+- Abra **Sólido** na barra ou use **Alt+Shift+G**. Escolha entre cubo, paralelepípedo, prismas, pirâmides, sólidos regulares, cilindro, cone, esfera e troncos. Use o duplo clique com **Seleção** para alterar a vista, as dimensões e o estilo.
+- Teste a vista oblíqua, o preenchimento leve e as opções **Mostrar altura** e **Mostrar raio**. **Shift+Y** exporta o desenho completo em PDF, com as arestas ocultas tracejadas em vetor.
+
 ## C2b — Instrumentos de apoio
 
 - **Instrumentos sólidos**, em **Ajustes** ou com **Alt+9**, faz a Caneta e o Marca-texto contornarem a régua, os esquadros e o transferidor. Segure **Alt** para desenhar através deles. O reconhecimento de formas continua disponível na borda.

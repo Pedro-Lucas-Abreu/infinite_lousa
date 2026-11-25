@@ -5,7 +5,7 @@ import { BoardController } from './canvas/controller'
 import type { BoardTool, BrushStyle } from './canvas/controller'
 import { screenToWorld } from './core/camera'
 import { objectBounds, Scene } from './core/scene'
-import type { Affine, BoardChange, BoardObject, EquationObject, EquationPath, FrameObject, InstrumentObject, PageObject, PlotObject, Point, TextObject } from './core/types'
+import type { Affine, BoardChange, BoardObject, EquationObject, EquationPath, FrameObject, InstrumentObject, PageObject, PlotObject, Point, SolidObject, TextObject } from './core/types'
 import { BoardDocument } from './documents/store'
 import { decodeFromFile, openBoardFile, saveBoardFile, savePdfFile, type BoardFileLink } from './documents/files'
 import { beginNewBoard, emptyBoard, NEW_BOARD_UNDO_MS, NewBoardUndo, newBoardCamera, newBoardFile,
@@ -24,6 +24,7 @@ import { backgrounds, compassTools, initialFavorites, shapeTools, tools, Tools }
 import { TextEditor } from './ui/text-editor'
 import { EquationEditor } from './ui/equation-editor'
 import { PlotEditor } from './ui/plot-editor'
+import { SolidEditor } from './ui/solid-editor'
 import { QuickGraph } from './ui/quick-graph'
 import { Calculator } from './ui/calculator'
 import { Bhaskara } from './ui/bhaskara'
@@ -34,6 +35,7 @@ import { DEFAULT_PLOT_SETTINGS, getPlotGeometry, MAX_PLOT_FUNCTIONS } from './pl
 import { alignPlotAxes } from './plot/object'
 import { nextPlotColor, PLOT_NOT_VISIBLE } from './plot/quick-graph'
 import { instrumentDimensions, type InstrumentKind } from './instruments/geometry'
+import { defaultSolid, projectSolid, type SolidProps } from './solids/geometry'
 import { textBoxDimensions } from './ui/text'
 import type { Background, Dock } from './ui/tools'
 import './styles.css'
@@ -78,6 +80,11 @@ interface PlotDraft {
 
 interface QuickGraphDraft {
   target?: PlotObject
+}
+
+interface SolidDraft {
+  initial: SolidProps
+  object?: SolidObject
 }
 
 type PointerEffect = 'laser' | 'spotlight' | null
@@ -158,6 +165,7 @@ function Board() {
   const textDraftRef = useRef<TextDraft | null>(null)
   const equationDraftRef = useRef<EquationDraft | null>(null)
   const plotDraftRef = useRef<PlotDraft | null>(null)
+  const solidDraftRef = useRef<SolidDraft | null>(null)
   const quickGraphRef = useRef<QuickGraphDraft | null>(null)
   const bhaskaraSession = useRef<symbol | null>(null)
   const shortcutsOpenRef = useRef(false)
@@ -171,6 +179,7 @@ function Board() {
   const [textDraft, setTextDraft] = useState<TextDraft | null>(null)
   const [equationDraft, setEquationDraft] = useState<EquationDraft | null>(null)
   const [plotDraft, setPlotDraft] = useState<PlotDraft | null>(null)
+  const [solidDraft, setSolidDraft] = useState<SolidDraft | null>(null)
   const [quickGraph, setQuickGraph] = useState<QuickGraphDraft | null>(null)
   const [calculatorOpen, setCalculatorOpen] = useState(false)
   const [bhaskaraOpen, setBhaskaraOpen] = useState(false)
@@ -208,7 +217,7 @@ function Board() {
 
   function openTextEditor(request: { point: Point; screen: Point; object?: TextObject; parentId?: string }) {
     const board = controller.current
-    if (!board || !documentRef.current || fileOperation.current || textDraftRef.current || equationDraftRef.current || plotDraftRef.current) return
+    if (!board || !documentRef.current || fileOperation.current || textDraftRef.current || equationDraftRef.current || plotDraftRef.current || solidDraftRef.current) return
     const { point, screen, object, parentId } = request
     const viewport = board.getViewport()
     const settings = useSettings.getState()
@@ -225,7 +234,7 @@ function Board() {
 
   function openEquationEditor(request: { point: Point; screen: Point; object?: EquationObject; parentId?: string }) {
     const board = controller.current
-    if (!board || !documentRef.current || fileOperation.current || textDraftRef.current || equationDraftRef.current || plotDraftRef.current) return
+    if (!board || !documentRef.current || fileOperation.current || textDraftRef.current || equationDraftRef.current || plotDraftRef.current || solidDraftRef.current) return
     const { point, screen, object, parentId } = request
     const viewport = board.getViewport()
     const settings = useSettings.getState()
@@ -331,6 +340,55 @@ function Board() {
     setQuickGraph(draft)
   }
 
+  function openSolidEditor(object?: SolidObject) {
+    const board = controller.current
+    if (!board || !documentRef.current || fileOperation.current || textDraftRef.current ||
+      equationDraftRef.current || plotDraftRef.current || solidDraftRef.current || quickGraphRef.current ||
+      presentingRef.current) return
+    const { color, size: activeSize } = board.getStyle()
+    const size = Math.min(24, activeSize)
+    const { width, height } = projectSolid(defaultSolid, size)
+    const draft = { initial: object?.props ?? { ...defaultSolid, color, size, width, height }, object }
+    updatePointerEffect(null)
+    solidDraftRef.current = draft
+    setSolidDraft(draft)
+  }
+
+  function closeSolidEditor() {
+    solidDraftRef.current = null
+    setSolidDraft(null)
+  }
+
+  function saveSolid(props: SolidProps) {
+    const draft = solidDraftRef.current
+    const board = controller.current, scene = sceneRef.current
+    if (!draft || !board || !scene || !documentRef.current || fileOperation.current) return
+    const before = draft.object
+    if (before && scene.get(before.id) !== before) { closeSolidEditor(); return }
+    if (before && Object.keys(props).every((key) => props[key as keyof SolidProps] === before.props[key as keyof SolidProps])) {
+      closeSolidEditor()
+      return
+    }
+    let after: SolidObject
+    if (before) {
+      const [a, b, c, d, x, y] = before.transform
+      const dx = (before.props.width - props.width) / 2, dy = (before.props.height - props.height) / 2
+      after = { ...before, transform: [a, b, c, d, x + a * dx + c * dy, y + b * dx + d * dy], props }
+    } else {
+      const viewport = board.getViewport(), camera = board.getCamera()
+      const scale = Math.min(1, viewport.width * 0.76 / props.width, viewport.height * 0.76 / props.height) / camera.zoom
+      if (!Number.isFinite(scale) || scale <= 0) return
+      after = { type: 'solid', id: crypto.randomUUID(), locked: false, zIndex: scene.nextZIndex(), props,
+        transform: [scale, 0, 0, scale, camera.x - props.width * scale / 2, camera.y - props.height * scale / 2] }
+    }
+    applyChanges([{ before, after }])
+    closeSolidEditor()
+    if (!before) {
+      board.clearSelection()
+      chooseTool('select')
+    }
+  }
+
   function closeQuickGraph() {
     quickGraphRef.current = null
     setQuickGraph(null)
@@ -431,7 +489,7 @@ function Board() {
   }
 
   function setPresentation(enabled: boolean, focusBoard = true) {
-    if (enabled && (textDraftRef.current || equationDraftRef.current || plotDraftRef.current || quickGraphRef.current)) {
+    if (enabled && (textDraftRef.current || equationDraftRef.current || plotDraftRef.current || solidDraftRef.current || quickGraphRef.current)) {
       setMessage('Confirme ou cancele a edição antes de apresentar.')
       return
     }
@@ -862,6 +920,7 @@ function Board() {
       onTextEdit: openTextEditor,
       onEquationEdit: openEquationEditor,
       onPlotEdit: openPlotEditor,
+      onSolidEdit: openSolidEditor,
       onCompassStepChange: setCompassStep,
       getPageRaster: (page) => {
         const asset = documentRef.current?.asset(page.props.assetId)
@@ -917,7 +976,7 @@ function Board() {
 
     function handleShortcut(event: KeyboardEvent) {
       const target = event.target
-      if (event.defaultPrevented || shortcutsOpenRef.current || plotDraftRef.current || quickGraphRef.current ||
+      if (event.defaultPrevented || shortcutsOpenRef.current || plotDraftRef.current || solidDraftRef.current || quickGraphRef.current ||
         newBoardOpenRef.current || resetPending.current) return
 
       const action = findShortcut(event, 'board')
@@ -1000,6 +1059,7 @@ function Board() {
         case 'zoom-reset': board.setCamera({ x: 0, y: 0, zoom: 1 }); break
         case 'open-shortcuts': showShortcuts(true); break
         case 'new-plot': openPlotEditor(); break
+        case 'new-solid': openSolidEditor(); break
         case 'open-quick-graph': openQuickGraph(); break
         case 'open-calculator': setCalculatorOpen(true); break
         case 'open-bhaskara': showBhaskara(true); break
@@ -1017,7 +1077,7 @@ function Board() {
     }
 
     function handlePaste(event: ClipboardEvent) {
-      if (fileOperation.current || !documentRef.current || shortcutsOpenRef.current || plotDraftRef.current || quickGraphRef.current) return
+      if (fileOperation.current || !documentRef.current || shortcutsOpenRef.current || plotDraftRef.current || solidDraftRef.current || quickGraphRef.current) return
       if (isTextEntry(event.target)) return
       const files = Array.from(event.clipboardData?.files ?? [])
       if (files.length) { event.preventDefault(); importAssets(files); return }
@@ -1199,6 +1259,7 @@ function Board() {
         <Tools dock={dock} tool={tool} favorite={favorite} favorites={favorites}
           onDock={(position) => useSettings.setState({ dock: position })}
           onTool={chooseTool} onPlot={() => openPlotEditor()} onInstrument={insertInstrument}
+          onSolid={() => openSolidEditor()}
           onQuickGraph={openQuickGraph}
           shapeRecognition={shapeRecognition} onToggleRecognition={toggleShapeRecognition}
           solidInstruments={solidInstruments} lockCompassRadius={lockCompassRadius}
@@ -1272,6 +1333,8 @@ function Board() {
         onCancel={() => showNewBoard(false)} />}
       {plotDraft && <PlotEditor initial={plotDraft.initial} editing={Boolean(plotDraft.object)}
         onSave={commitPlot} onCancel={closePlotEditor} />}
+      {solidDraft && <SolidEditor initial={solidDraft.initial} editing={Boolean(solidDraft.object)}
+        onSave={saveSolid} onCancel={closeSolidEditor} />}
       {quickGraph && <QuickGraph selected={Boolean(quickGraph.target)} onSubmit={submitQuickGraph} onCancel={closeQuickGraph} />}
       <Calculator open={calculatorOpen} onClose={() => setCalculatorOpen(false)} />
       {bhaskaraOpen && <Bhaskara onClose={() => showBhaskara(false)} onInsert={insertBhaskara} />}

@@ -4,10 +4,11 @@ import { Zip, ZipDeflate, zipSync } from "fflate";
 import { Scene, objectBounds } from "../core/scene";
 import { shapeArcPoints } from "../core/shapes";
 import { createStroke } from "../core/stroke";
-import type { Brush, EquationObject, FrameObject, InstrumentObject, PageObject, PlotObject, ShapeObject, Stroke, TextObject } from "../core/types";
+import type { Brush, EquationObject, FrameObject, InstrumentObject, PageObject, PlotObject, ShapeObject, SolidObject, Stroke, TextObject } from "../core/types";
 import { instrumentDimensions } from "../instruments/geometry";
 import { DEFAULT_PLOT_SETTINGS } from "../plot/geometry";
 import { alignPlotAxes } from "../plot/object";
+import { defaultSolid, projectSolid } from "../solids/geometry";
 import { type PortableBoard, readArchive, writeArchive } from "./archive";
 import { BoardDocument } from "./store";
 
@@ -92,6 +93,22 @@ describe("portable .board", () => {
     assert.deepEqual([x, y], [40, 70]);
     assert.ok(Math.abs(aligned.props.width * Math.hypot(a, b) - plot.props.width * 2) < 1e-10);
     assert.ok(Math.abs(aligned.props.height * Math.hypot(c, d) - plot.props.height * Math.hypot(-1, 0.5)) < 1e-10);
+  });
+
+  it("round-trips editable solids and clipped ink alongside older strokes in v1", () => {
+    const settings = { ...defaultSolid, kind: "pyramid-frustum" as const, sides: 6, edge: 3.4, azimuth: -40,
+      topScale: 0.65, fillFaces: true, showHeight: true };
+    const { width, height } = projectSolid(settings, 2);
+    const solid: SolidObject = { id: "solid", type: "solid", transform: [1.4, 0, 0, 1.4, 44, 87],
+      locked: false, zIndex: 2, props: { ...settings, width, height, color: "#123456", size: 2 } };
+    const clipped: Stroke = { ...stroke, id: "clipped", zIndex: 1, props: { ...stroke.props,
+      points: [{ x: 0, y: 0 }, { x: 8, y: 10, breakBefore: true }],
+      contours: [[{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 2 }], [{ x: 7, y: 8 }, { x: 9, y: 8 }, { x: 8, y: 11 }]] } };
+    const board: PortableBoard = { ...fixture, scene: { version: 1, objects: [stroke, clipped, solid] } };
+    assert.deepEqual(readArchive(writeArchive(board)), board);
+    assert.throws(() => writeArchive({ ...board, scene: { version: 1, objects: [
+      { ...solid, props: { ...solid.props, sides: 7 } },
+    ] } }), /Invalid geometric solid/);
   });
 
   it("accepts a ZIP written with streamed DEFLATE entries and data descriptors", () => {

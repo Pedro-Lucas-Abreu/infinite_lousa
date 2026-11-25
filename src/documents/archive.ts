@@ -3,6 +3,7 @@ import type { SceneSnapshot } from "../core/scene";
 import { hasValidSvgPathData } from "../core/svgPath";
 import { type Affine, type BoardObject, type Brush, type EquationPath, type Point, type ShapeKind, type StrokePoint, isPageObject } from "../core/types";
 import { isInstrumentKind } from "../instruments/geometry";
+import { projectSolid, validSolidSettings } from "../solids/geometry";
 import { parsePlotExpression } from "../plot/expression";
 import { MAX_PLOT_FUNCTIONS, validatePlotSettings, type PlotSettings } from "../plot/geometry";
 
@@ -188,6 +189,7 @@ function isPoint(value: unknown): value is Point {
 
 function isStrokePoint(value: unknown): value is StrokePoint {
   if (!isPoint(value)) return false;
+  if ("breakBefore" in value && value.breakBefore !== true) return false;
   return !("pressure" in value) || value.pressure === undefined ||
     (finite(value.pressure) && value.pressure >= 0 && value.pressure <= 1);
 }
@@ -262,9 +264,15 @@ function validateScene(scene: unknown): SceneSnapshot {
           (pointCount += props.points.length) > MAX_POINTS || !props.points.every(isStrokePoint)) {
         throw new Error("Invalid stroke geometry or point count limit exceeded.");
       }
+      const contours = props.contours;
+      if (contours !== undefined && (!Array.isArray(contours) || contours.length === 0 ||
+        !contours.every((path: unknown) => Array.isArray(path) && path.length >= 3 &&
+          (pointCount += path.length) <= MAX_POINTS && path.every(isPoint)))) {
+        throw new Error("Invalid clipped ink contour.");
+      }
       return {
         ...base, ...attachment, type: "stroke",
-        props: { version: 1, points: props.points, brush: props.brush },
+        props: { version: 1, points: props.points, brush: props.brush, ...(contours ? { contours } : {}) },
       };
     }
 
@@ -287,6 +295,16 @@ function validateScene(scene: unknown): SceneSnapshot {
     if (object.type === "instrument") {
       if (!isInstrumentKind(props.kind)) throw new Error("Invalid geometry instrument.");
       return { ...base, ...attachment, type: "instrument", props: { width, height, kind: props.kind } };
+    }
+    if (object.type === "solid") {
+      const { kind, edge, depth, altitude, radius, sides, topScale, azimuth, elevation,
+        fillFaces, showHeight, showRadius, size, color } = props;
+      const settings = { kind, edge, depth, altitude, radius, sides, topScale, azimuth, elevation, fillFaces, showHeight, showRadius };
+      if (!validSolidSettings(settings) || !isColor(color) || !finite(size) || size < 0.5 || size > 24) {
+        throw new Error("Invalid geometric solid.");
+      }
+      const geometry = projectSolid(settings, size);
+      return { ...base, ...attachment, type: "solid", props: { ...settings, size, color, width: geometry.width, height: geometry.height } };
     }
     if (object.type === "frame") {
       if (typeof props.name !== "string" || !finite(props.order)) throw new Error("Invalid frame.");

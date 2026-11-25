@@ -7,13 +7,14 @@ import {
 } from "@cantoo/pdf-lib";
 import { shapeArcPoints } from "../core/shapes";
 import { createStroke } from "../core/stroke";
-import type { EquationObject, FrameObject, InstrumentObject, PageObject, PlotObject, ShapeObject, TextObject } from "../core/types";
+import type { EquationObject, FrameObject, InstrumentObject, PageObject, PlotObject, ShapeObject, SolidObject, TextObject } from "../core/types";
 import type { BoardAsset, PortableBoard } from "../documents/archive";
 import { instrumentDimensions, instrumentKinds } from "../instruments/geometry";
 import { exportPdf } from "./export";
 import { sourceGeometry } from "./source";
 import { renderEquation } from "../equations/render";
 import { DEFAULT_PLOT_SETTINGS } from "../plot/geometry";
+import { defaultSolid, projectSolid } from "../solids/geometry";
 
 const decoder = new TextDecoder("latin1");
 const unchanged = [1, 0, 0, 1, 0, 0] as const;
@@ -252,5 +253,27 @@ test("omits geometry tools and their bounds by default and can include all of th
   assert.match(fullPage, /<313830B0> Tj/i, "protractor angles stay PDF text");
   assert.ok(fullPage.indexOf(" c\n") < fullPage.indexOf("1 0 0 1 200 100 cm"), "instruments render above all ink");
   assert.ok(included.context.enumerateIndirectObjects().every(([, object]) =>
+    !(object instanceof PDFRawStream) || object.dict.get(PDFName.of("Subtype")) !== PDFName.of("Image")));
+});
+
+test("exports geometric solids with real PDF dash patterns, cubic curves and vector fills", async () => {
+  const objects = (["cube", "cone", "sphere"] as const).map((kind, index): SolidObject => {
+    const settings = { ...defaultSolid, kind, fillFaces: true, showHeight: true, showRadius: true };
+    const { width, height } = projectSolid(settings, 2);
+    return { id: kind, type: "solid", locked: false, zIndex: index, transform: [1, 0, 0, 1, index * 400 + 20, 15],
+      props: { ...settings, size: 2, color: "#204dab", width, height } };
+  });
+  const { bytes } = await exportPdf({ scene: { version: 1, objects }, assets: [] });
+  const reopened = await PDFDocument.load(bytes);
+  assert.equal(reopened.getPageCount(), 1);
+  const stream = pageStreams(reopened, 0);
+  assert.match(stream, /\[\s*6 4\.6\s*\]\s+0 d\s+S/);
+  assert.match(stream, /\[\s*\]\s+0 d\s+S/);
+  assert.equal((stream.slice(0, stream.indexOf("1 0 0 1 420 15 cm")).match(/\[\s*6 4\.6\s*\]\s+0 d/g) ?? []).length, 4,
+    "the cube exports three hidden edges and the optional altitude");
+  assert.match(stream, / c\s+(?:c|h|\[)/);
+  assert.match(stream, /\/SolidFaceOpacity[^\s]+ gs\s+f/);
+  assert.doesNotMatch(stream, /\sDo\b|\sTj\b/);
+  assert.ok(reopened.context.enumerateIndirectObjects().every(([, object]) =>
     !(object instanceof PDFRawStream) || object.dict.get(PDFName.of("Subtype")) !== PDFName.of("Image")));
 });

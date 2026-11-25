@@ -1,5 +1,6 @@
 import type { PlotFunction, PlotSettings } from "../plot/geometry";
 import type { InstrumentKind } from "../instruments/geometry";
+import type { SolidProps } from "../solids/geometry";
 
 export interface Point {
   readonly x: number;
@@ -8,6 +9,7 @@ export interface Point {
 
 export interface StrokePoint extends Point {
   readonly pressure?: number;
+  readonly breakBefore?: true;
 }
 
 export interface Viewport {
@@ -57,6 +59,7 @@ export interface Stroke extends ObjectBase {
     readonly points: readonly StrokePoint[];
     readonly brush: Brush;
     readonly version: 1;
+    readonly contours?: readonly (readonly Point[])[];
   };
 }
 
@@ -147,7 +150,13 @@ export interface InstrumentObject extends ObjectBase {
   };
 }
 
-export type BoardObject = Stroke | PageObject | FrameObject | TextObject | ShapeObject | EquationObject | PlotObject | InstrumentObject;
+export interface SolidObject extends ObjectBase {
+  readonly type: "solid";
+  readonly parentId?: string;
+  readonly props: SolidProps;
+}
+
+export type BoardObject = Stroke | PageObject | FrameObject | TextObject | ShapeObject | EquationObject | PlotObject | InstrumentObject | SolidObject;
 
 export interface BoardChange {
   readonly before?: BoardObject;

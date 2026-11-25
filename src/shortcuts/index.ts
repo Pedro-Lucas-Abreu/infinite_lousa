@@ -1,6 +1,6 @@
 import { latexExpansionDetails, latexReplacementDetails } from '../equations/shortcuts'
 
-export type ShortcutScope = 'board' | 'controller' | 'text' | 'equation' | 'panel' | 'plot' | 'quick-graph' | 'calculator' | 'bhaskara' | 'new-board'
+export type ShortcutScope = 'board' | 'controller' | 'text' | 'equation' | 'panel' | 'plot' | 'solid' | 'quick-graph' | 'calculator' | 'bhaskara' | 'new-board'
 export type ShortcutCategory = 'Ferramentas' | 'Lousa' | 'PDF e quadros' | 'Equações' | 'Edição'
 
 export interface KeyBinding {
@@ -154,6 +154,7 @@ export const shortcuts = [
   board('laser', 'Lousa', 'Ligar ou desligar laser', plain('k', true)),
   board('spotlight', 'Lousa', 'Ligar ou desligar spotlight', plain('s', true)),
   board('new-plot', 'Ferramentas', 'Inserir plano cartesiano', plain('F2', true)),
+  board('new-solid', 'Ferramentas', 'Inserir sólido geométrico', { ...alt('g'), shift: true, single: true }),
   board('open-quick-graph', 'Ferramentas', 'Gráfico — inserir função', plain('z', true)),
   board('open-calculator', 'Ferramentas', 'Abrir calculadora científica', { key: 'F8', single: true }),
   board('open-bhaskara', 'Ferramentas', 'Abrir resolução por Bhaskara', { key: 'F8', shift: true, single: true }),
@@ -186,6 +187,10 @@ export const shortcuts = [
     [{ gesture: 'edit', button: primary }]),
   entry('plot-save', 'plot', 'Edição', 'Inserir ou salvar plano cartesiano', [{ key: 'Enter' }]),
   entry('plot-cancel', 'plot', 'Edição', 'Cancelar edição do plano cartesiano', [plain('Escape')]),
+  entry('edit-solid', 'controller', 'Edição', 'Editar sólido com Seleção ou Laço', [], ['Duplo clique'],
+    [{ gesture: 'edit', button: primary }]),
+  entry('solid-save', 'solid', 'Edição', 'Inserir ou salvar sólido geométrico', [{ key: 'Enter' }]),
+  entry('solid-cancel', 'solid', 'Edição', 'Cancelar edição do sólido geométrico', [plain('Escape')]),
   entry('quick-graph-save', 'quick-graph', 'Ferramentas', 'Inserir a função no gráfico', [plain('Enter')]),
   entry('quick-graph-cancel', 'quick-graph', 'Ferramentas', 'Fechar a caixa do gráfico', [plain('Escape')]),
   entry('calculator-input', 'calculator', 'Ferramentas', 'Digitar na calculadora',
@@ -279,6 +284,6 @@ export function shouldExtendSelection(event: Pick<PointerEvent, 'button' | 'shif
     binding.button === event.button && binding.condition === 'shift' && event.shiftKey)
 }
 
-export function acceptsPointer(id: 'edit-text' | 'edit-equation' | 'edit-plot' | 'finish-polygon' | 'dock-bar', button: number): boolean {
+export function acceptsPointer(id: 'edit-text' | 'edit-equation' | 'edit-plot' | 'edit-solid' | 'finish-polygon' | 'dock-bar', button: number): boolean {
   return byId.get(id)!.pointerBindings.some((binding) => binding.button === button)
 }

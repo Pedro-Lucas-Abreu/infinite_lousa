@@ -28,6 +28,7 @@ Pressione **?** ou abra **Arquivo → Atalhos** para consultar a lista completa,
 | Inserir e editar equação | `Q` abre o editor LaTeX no ponteiro ou no centro da lousa. `Enter` insere. Com **Seleção**, dê duplo clique na equação para reabrir o código |
 | Desenhar formas | `L` linha, `A` seta, `W` retângulo, `O` elipse e `C` polígono. Arraste para desenhar. No polígono, clique nos vértices e confirme com `Enter` ou duplo clique |
 | Inserir e editar plano cartesiano | `F2` ou **Formas → Plano cartesiano** para inserir. Com **Seleção** ou **Laço**, dê duplo clique para editar |
+| Inserir e editar sólido geométrico | **Sólido** ou `Alt+Shift+G` para inserir. Com **Seleção** ou **Laço**, dê duplo clique para editar |
 | Criar um gráfico direto | **Gráfico** ou `Z`, seguido de uma expressão como `y = x^2 - 4`. Com um plano selecionado, a função é adicionada a ele |
 | Abrir calculadora científica ou Bhaskara | **Calculadora** ou `F8`. **Bhaskara** ou `Shift+F8`. Arraste o painel pelo cabeçalho |
 | Inserir instrumentos | Menu **Instrumentos** ou `Alt+1` régua, `Alt+2` esquadro de 45°, `Alt+3` esquadro de 30°–60°, `Alt+4` transferidor |
@@ -59,6 +60,8 @@ A calculadora científica usa vírgula na tela e aceita ponto ao digitar. **2nd*
 
 Os instrumentos translúcidos ficam sobre a lousa. Em **Seleção**, arraste o corpo para mover e a alça superior para girar. Com **Instrumentos sólidos** ligado, a Caneta e o Marca-texto contornam o corpo da régua, dos esquadros e do transferidor. **Arquivo → Incluir instrumentos no PDF** ou `Alt+7` inclui as guias no PDF como vetor. Círculos, arcos e tinta fazem parte do desenho exportado por padrão.
 
+O editor de **Sólido** ajusta as dimensões do modelo, a elevação e o azimute em projeção ortográfica. Arestas ocultas aparecem tracejadas. A altura, o raio e o preenchimento leve são opcionais. O sólido é exportado em vetor no PDF.
+
 As páginas PDF entram travadas para anotação e geram quadros na ordem. Em **Quadros**, destrave uma página para movê-la ou desative a criação automática antes de importar. Ao mover uma página, a tinta ancorada e o quadro vinculado a acompanham. Na exportação, o PDF de origem é incorporado quando possível. Páginas incompatíveis são renderizadas em alta resolução e a lousa informa quantas usaram essa alternativa.
 
 ## Salvamento e uso offline
@@ -74,7 +77,7 @@ Um `.board` é um ZIP de um único volume com entradas Store (0) ou Deflate (8).
 | Entrada | Conteúdo |
 | --- | --- |
 | `manifest.json` | Objeto com `format: "board"`, `version: 1`, `scenePath: "scene.json"` e `assets`. Cada item em `assets` tem `id`, `path: "assets/<id>"`, `mime` e `size` em bytes. Use `assets: []` quando a lousa não tiver arquivos incorporados. |
-| `scene.json` | Objeto com `version: 1` e lista `objects`. Aceita traços, imagens, páginas PDF, quadros, texto, formas, equações, planos cartesianos e instrumentos. Arquivos anteriores continuam legíveis. |
+| `scene.json` | Objeto com `version: 1` e lista `objects`. Aceita traços, imagens, páginas PDF, quadros, texto, formas, equações, planos cartesianos, instrumentos e sólidos. Arquivos anteriores continuam legíveis. |
 | `assets/<id>` | Bytes do PDF ou da imagem catalogados no manifesto. |
 
 `image` e `pdfPage` usam `props` com `width`, `height` e `assetId`. `pdfPage` também tem `pageIndex` a partir de zero. `frame` usa `width`, `height`, `name` e `order`. Traços e quadros podem ter `parentId` com o ID de uma página PDF. Traços têm `brush.opacity` opcional para marca-texto.
@@ -85,7 +88,11 @@ Um `plot` guarda `width`, `height`, `color`, `size`, `settings` com `xmin`, `xma
 
 Um `instrument` guarda `kind`, `width` e `height`. A posição, a rotação e a escala usam a transformação da cena. Arcos desenhados pelo compasso são formas independentes. O primeiro ponto do arco é seguido por grupos de duas alças de controle e um ponto final por curva cúbica.
 
+Um `solid` guarda em `props` o tipo (`kind`), as dimensões (`edge`, `depth`, `altitude`, `radius`, `sides`, `topScale`), a vista em graus (`azimuth`, `elevation`) e o estilo (`color`, `size`, `fillFaces`, `showHeight`, `showRadius`). `width` e `height` guardam as dimensões locais da projeção.
+
 Cada traço tem `id`, `type`, `transform`, `zIndex`, `locked` e `props`. IDs têm de 1 a 128 caracteres e usam letras ASCII, dígitos, `_` e `-`. `transform` é uma matriz afim invertível `[a, b, c, d, e, f]`. Ela leva o ponto local `(x, y)` a `(ax + cy + e, bx + dy + f)` no mundo, com Y crescente para baixo. `zIndex` define a ordem de pintura. `props` contém `version: 1`, uma lista `points` com `x`, `y` e pressão opcional entre 0 e 1, e `brush` com `color` em `#RRGGBB`, `size` em unidades locais, `stabilizer` entre 0 e 100 e `simulatePressure` booleano.
+
+Os traços recortados por um instrumento podem ter `contours`, uma lista de polígonos locais que representam a área pintada. Um ponto com `breakBefore: true` começa um novo trecho no mesmo traço.
 
 Exemplo de `scene.json` com um traço de um ponto.
 

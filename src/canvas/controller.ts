@@ -3,19 +3,19 @@ import { objectBounds, type Scene } from '../core/scene'
 import { shapeArcPoints } from '../core/shapes'
 import { StrokeInput, type StrokeRoute } from '../core/stroke'
 import type { Affine, BoardChange, BoardObject, Bounds, Camera, EquationObject, FrameObject, InstrumentObject, PlotObject,
-  Point, ShapeKind, ShapeObject, Stroke, StrokePoint, TextObject, Viewport } from '../core/types'
+  Point, ShapeKind, ShapeObject, SolidObject, Stroke, StrokePoint, TextObject, Viewport } from '../core/types'
 import { compassFeet, instrumentDimensions } from '../instruments/geometry'
 import { compassAngle, compassRadius, compassTransform, measureProtractor, sweepCompass, worldProtractorCenter,
   type CompassSweep } from '../instruments/gesture'
-import { projectSolidPoint, solidBoundary, traceAroundSolids, type SolidBoundary } from '../instruments/solids'
+import { projectSolidPoint, segmentEntersSolid, solidBoundary, traceAroundSolids, type SolidBoundary } from '../instruments/solids'
 import { acceptsPointer, findShortcut, ignoresSolidInstruments, pointerButtons, pointerConstrained, secondaryButtonMask,
   shouldExtendSelection, shouldStartPan, shouldZoomWithWheel } from '../shortcuts'
 import { boundsFromPoints, expandBounds, fittingFrame, hitInk, hitObject, multiplyTransforms, rectanglePoints,
-  regionIntersects, selectionHandles } from './geometry'
+  regionIntersects, selectionHandles, transformPoint } from './geometry'
 import { CanvasRenderer, type BackgroundFrameMetrics, type BoardBackground, type CanvasOverlay,
   type CanvasPointer, type GetPageRaster, type PointerEffect } from './renderer'
 
-import { appendVertex, dragShapePoints, isDrawableShape, snapAngle, type DragShape } from './shapes'
+import { appendVertex, dragShapePoints, hitContours, isDrawableShape, snapAngle, type DragShape } from './shapes'
 import { recognizeShape, shapeHoldMs, shapeHoldRadius, type RecognizedShape } from './recognition'
 
 export type { BackgroundFrameMetrics } from './renderer'
@@ -64,6 +64,7 @@ export interface BoardControllerOptions {
   onTextEdit?: (request: TextEditRequest) => void
   onEquationEdit?: (request: EquationEditRequest) => void
   onPlotEdit?: (object: PlotObject) => void
+  onSolidEdit?: (object: SolidObject) => void
   onCompassStepChange?: (step: 'radius' | 'sweep') => void
 }
 
@@ -87,6 +88,7 @@ interface InkGesture {
     viewport: Viewport
     style: BrushStyle
     points: Point[]
+    constrained?: true
     anchor?: Point
     end?: Point
     timer?: number
@@ -607,8 +609,8 @@ export class BoardController {
           this.options.scene.add(stroke)
           this.options.onStrokeCommit?.(stroke)
         } else this.options.onChanges([{ after: stroke }])
-        if (gesture.recognition?.result) {
-          const recognized = this.recognizedObject(gesture, crypto.randomUUID())!
+        const recognized = this.recognizedObject(gesture, crypto.randomUUID())
+        if (recognized) {
           this.applyChanges([{ before: stroke }, { after: { ...recognized, zIndex: stroke.zIndex } }])
         } else committed.push(stroke)
       }
@@ -793,15 +795,15 @@ export class BoardController {
       this.refreshLive()
     } else {
       const highlighting = tool === 'highlight'
+      const boundaries = this.options.scene.all().filter((object): object is InstrumentObject =>
+        object.type === 'instrument' && object.props.kind !== 'compass').map(solidBoundary)
       const input = new StrokeInput({
         color: highlighting ? '#ffcf35' : this.style.color,
         size: (highlighting ? Math.max(14, this.style.size * 3) : this.style.size) / this.camera.zoom,
         stabilizer: this.stabilizer,
         simulatePressure: event.pointerType === 'mouse',
         ...(highlighting ? { opacity: 0.35 } : {}),
-      })
-      const boundaries = this.options.scene.all().filter((object): object is InstrumentObject =>
-        object.type === 'instrument' && object.props.kind !== 'compass').map(solidBoundary)
+      }, boundaries)
       const parentId = this.pdfAt(projectSolidPoint(world, boundaries, !this.solidInstruments || ignoresSolidInstruments(event)))
       const gesture: InkGesture = { kind: 'ink', pointerId: event.pointerId, input, samples: [], boundaries,
         ...(parentId ? { parentId } : {}),
@@ -875,14 +877,16 @@ export class BoardController {
   private enqueueSample(gesture: InkGesture, event: PointerEvent, rect: DOMRect): void {
     const screen = eventPoint(event, rect)
     const viewport = this.renderer.viewport
+    const hysteresis = 4 / this.camera.zoom
     const route: StrokeRoute | undefined = this.solidInstruments && gesture.boundaries.length && !ignoresSolidInstruments(event)
-      ? (point, previous) => traceAroundSolids(point, gesture.boundaries, previous) : undefined
+      ? (point, previous) => traceAroundSolids(point, gesture.boundaries, previous, false, hysteresis) : undefined
     const recognition = gesture.recognition
     if (recognition) {
       if (recognition.camera !== this.camera || recognition.viewport !== viewport) this.discardRecognition()
       else {
         const world = screenToWorld(screen, this.camera, viewport)
         const positions = route?.(world, recognition.end) ?? [world]
+        if (route) recognition.constrained = true
         recognition.end = positions.at(-1)
         for (const point of positions) recognition.points.push(worldToScreen(point, this.camera, viewport))
         if (!recognition.anchor || distance(recognition.anchor, screen) > shapeHoldRadius) {
@@ -895,6 +899,7 @@ export class BoardController {
           recognition.timer = window.setTimeout(() => {
             if (this.gesture !== gesture || gesture.recognition !== recognition) return
             recognition.result = recognizeShape(recognition.points)
+            if (recognition.constrained && !this.recognizedObject(gesture, 'recognition-preview')) recognition.result = undefined
             this.refreshLive()
           }, shapeHoldMs)
         }
@@ -1019,7 +1024,8 @@ export class BoardController {
       if (guide) return
       const object = this.editableAt(world)
       if (!object) return
-      const action = object.type === 'equation' ? 'edit-equation' : object.type === 'plot' ? 'edit-plot' : 'edit-text'
+      const action = object.type === 'equation' ? 'edit-equation'
+        : object.type === 'plot' ? 'edit-plot' : object.type === 'solid' ? 'edit-solid' : 'edit-text'
       if (acceptsPointer(action, event.button)) this.editExisting(object)
     }
   }
@@ -1229,11 +1235,21 @@ export class BoardController {
     if (!recognition?.result) return
     const { kind, points, angle } = recognition.result
     const world = points.map((point) => screenToWorld(point, recognition.camera, recognition.viewport))
-    const shape = this.createShape(id, kind, world, recognition.style, gesture.parentId)
-    if (!angle) return shape
-    const cos = Math.cos(angle), sin = Math.sin(angle)
-    const rotation = this.around(midpoint(world[0], world[1]), [cos, sin, -sin, cos, 0, 0])
-    return { ...shape, transform: multiplyTransforms(rotation, shape.transform) }
+    let shape = this.createShape(id, kind, world, recognition.style, gesture.parentId)
+    if (angle) {
+      const cos = Math.cos(angle), sin = Math.sin(angle)
+      const rotation = this.around(midpoint(world[0], world[1]), [cos, sin, -sin, cos, 0, 0])
+      shape = { ...shape, transform: multiplyTransforms(rotation, shape.transform) }
+    }
+    if (!recognition.constrained) return shape
+    const clear = hitContours(shape).every(({ points, closed }) => {
+      const world = points.map((point) => transformPoint(shape.transform, point))
+      return world.every((start, index) => {
+        const end = world[index + 1] ?? (closed ? world[0] : undefined)
+        return !end || !gesture.boundaries.some((boundary) => segmentEntersSolid(start, end, boundary))
+      })
+    })
+    return clear ? shape : undefined
   }
 
   private createShape(id: string, kind: ShapeKind, points: readonly Point[], style: BrushStyle, parentId?: string): ShapeObject {
@@ -1276,18 +1292,22 @@ export class BoardController {
     this.refreshLive()
   }
 
-  private editableAt(point: Point): TextObject | EquationObject | PlotObject | undefined {
+  private editableAt(point: Point): TextObject | EquationObject | PlotObject | SolidObject | undefined {
     const candidates = this.options.scene.search(boundsFromPoints([point]))
     for (let i = candidates.length - 1; i >= 0; i--) {
       const candidate = candidates[i]!
-      if ((candidate.type === 'text' || candidate.type === 'equation' || candidate.type === 'plot') &&
+      if ((candidate.type === 'text' || candidate.type === 'equation' || candidate.type === 'plot' || candidate.type === 'solid') &&
         !candidate.locked && hitObject(candidate, point, 0)) return candidate
       if (candidate.type === 'pdfPage' && hitObject(candidate, point, 0)) break
     }
     return undefined
   }
 
-  private editExisting(object: TextObject | EquationObject | PlotObject): void {
+  private editExisting(object: TextObject | EquationObject | PlotObject | SolidObject): void {
+    if (object.type === 'solid') {
+      this.options.onSolidEdit?.(object)
+      return
+    }
     if (object.type === 'plot') {
       this.options.onPlotEdit?.(object)
       return
@@ -1428,7 +1448,7 @@ export class BoardController {
     let xScale = width === 0 ? 1 : Math.max(minSize / Math.abs(width), 1 + (end.x - start.x) / width)
     let yScale = height === 0 ? 1 : Math.max(minSize / Math.abs(height), 1 + (end.y - start.y) / height)
     if (constrained || gesture.objects.some((object) =>
-      object.type === 'instrument' || (object.type === 'frame' && this.selection.has(object.id)) ||
+      object.type === 'instrument' || object.type === 'solid' || (object.type === 'frame' && this.selection.has(object.id)) ||
       (object.type === 'plot' && object.props.settings.lockAspect))) {
       xScale = yScale = Math.max(xScale, yScale)
     }

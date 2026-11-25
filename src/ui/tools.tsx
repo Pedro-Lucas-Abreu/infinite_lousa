@@ -52,6 +52,7 @@ type Props = {
   onDock: (dock: Dock) => void
   onTool: (tool: BoardTool) => void
   onPlot: () => void
+  onSolid: () => void
   onQuickGraph: () => void
   shapeRecognition: boolean
   onToggleRecognition: () => void
@@ -64,7 +65,7 @@ type Props = {
   onEditFavorite: (style: BrushStyle) => void
 }
 
-export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onPlot, onQuickGraph, shapeRecognition,
+export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onPlot, onSolid, onQuickGraph, shapeRecognition,
   onToggleRecognition, solidInstruments, lockCompassRadius, onSolidInstruments, onLockCompassRadius,
   onInstrument, onFavorite, onEditFavorite }: Props) {
   const [dragging, setDragging] = useState(false)
@@ -112,6 +113,10 @@ export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onPlot,
       <button type="button" className="quick-graph-tool" aria-haspopup="dialog" aria-keyshortcuts={shortcutAria('open-quick-graph')}
         title={`Gráfico (${shortcutLabel('open-quick-graph')})`} onClick={onQuickGraph}>
         <span aria-hidden="true" data-ui-icon>↗</span><small>Gráfico</small>
+      </button>
+      <button type="button" aria-haspopup="dialog" aria-keyshortcuts={shortcutAria('new-solid')}
+        title={`Sólido (${shortcutLabel('new-solid')})`} onClick={onSolid}>
+        <span aria-hidden="true" data-ui-icon>◇</span><small>Sólido</small>
       </button>
       <details className="tool-settings shapes-menu">
         <summary title="Escolher uma forma" aria-label="Formas">{shape?.label ?? 'Formas'}</summary>

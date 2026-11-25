@@ -25,8 +25,14 @@
 
 ## C2b Instrument guides
 
-- With solid instruments enabled, pen and highlighter project interior input onto the transformed body outline, including the filtered samples and the final endpoint. The centerline follows the boundary when samples jump across a body. The Alt modifier bypasses the guide for that input. Pen recognition uses the projected points.
+- With solid instruments enabled, the entry edge persists until another edge is closer by four screen pixels. Clip centerline segments against each convex body and detour by the shorter perimeter route. With overlapping bodies, a subpath break replaces a connection that still crosses a body. Alt bypasses the constraint for the corresponding input. Shape recognition checks the resulting shape against the same bodies.
+- The freehand outline is clipped outside the bodies after smoothing so neither the pen nor the highlighter paints across a corner. Clipped contours and subpath breaks stay in the same stroke and undo together. Canvas, PNG, PDF and hit-testing use the resulting contours. The optional fields extend the v1 archive.
 - Protractor rays start at the transformed center and measure relative to the instrument's base. Shift bypasses degree rounding. Angle and compass radius readings use live canvas labels. The compass lock remembers the last successful radius in board units for the session.
+
+## Geometric solids
+
+- Store editable model dimensions, orthographic angles and appearance in a `solid` scene object. Editing keeps its center and affine orientation. Selection resizing preserves proportions. The scene's history and v1 archive handle solids with the other objects.
+- The preview, canvas, PNG and PDF share projected paths. Convex mesh adjacency classifies hidden edges. Surfaces of revolution use projected circular arcs and analytic tangent generators. Optional face fills and guides share the same paths and PDF exports use native stroke dashes.
 
 ## Quick graph, calculator and quadratic solver
 

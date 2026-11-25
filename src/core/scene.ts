@@ -1,6 +1,6 @@
 import RBush from "rbush";
 import { shapeArrowHead } from "./shapes";
-import { strokeOutline } from "./stroke";
+import { strokeContours } from "./stroke";
 import type { Affine, BoardChange, BoardObject, Bounds, Point, ShapeObject } from "./types";
 
 interface IndexedObject extends Bounds {
@@ -75,7 +75,10 @@ function shapeBounds(object: ShapeObject): Bounds {
 }
 
 export function objectBounds(object: BoardObject): Bounds {
-  if (object.type === "stroke") return pointBounds(strokeOutline(object), object.transform);
+  if (object.type === "stroke") {
+    const contours = strokeContours(object);
+    return pointBounds(contours.length === 1 ? contours[0] : contours.flat(), object.transform);
+  }
   if (object.type === "shape") return shapeBounds(object);
 
   const { width, height } = object.props;

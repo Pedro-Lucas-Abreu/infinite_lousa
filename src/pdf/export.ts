@@ -1,11 +1,11 @@
 import {
-  drawEquationObject, drawInstrument, drawPlotObject, drawShape, drawTextObject, instrumentLineWidth, instrumentPaint,
+  drawEquationObject, drawInstrument, drawPlotObject, drawShape, drawSolid, drawTextObject, instrumentLineWidth, instrumentPaint,
   INSTRUMENT_BODY_OPACITY, PLOT_GRID_OPACITY, PLOT_GRID_WIDTH_RATIO, TEXT_LINE_HEIGHT,
 } from "../canvas/drawings";
 import { objectBounds, Scene } from "../core/scene";
 import { shapeArcSegments, shapeArrowHead } from "../core/shapes";
-import { strokeOutline } from "../core/stroke";
-import type { Affine, Bounds, EquationObject, FrameObject, InstrumentObject, PageObject, PlotObject, Point, ShapeObject, Stroke, TextObject } from "../core/types";
+import { strokeContours } from "../core/stroke";
+import type { Affine, Bounds, EquationObject, FrameObject, InstrumentObject, PageObject, PlotObject, Point, ShapeObject, SolidObject, Stroke, TextObject } from "../core/types";
 import type { BoardAsset, PortableBoard } from "../documents/archive";
 import { getInstrumentGeometry, type InstrumentLabel } from "../instruments/geometry";
 import type { PDFDict, PDFDocument, PDFFont, PDFImage, PDFPage } from "@cantoo/pdf-lib";
@@ -13,6 +13,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import { getPlotGeometry, type PlotLine } from "../plot/geometry";
 import { assetBlob, openPdf, renderPdfPage } from "./runtime";
 import type { OriginalPage } from "./source";
+import { projectSolid, solidDash, SOLID_FILL_OPACITY } from "../solids/geometry";
 
 export interface ExportOptions {
   readonly scope?: "all" | "frames";
@@ -121,14 +122,15 @@ async function destroySources(sources: Map<string, Promise<PDFDocumentProxy>>): 
 }
 
 function paintStroke(context: CanvasRenderingContext2D, stroke: Stroke, background: string | undefined): void {
-  const outline = strokeOutline(stroke);
-  if (!outline.length) return;
   context.globalAlpha = stroke.props.brush.opacity ?? 1;
   context.fillStyle = contrastColor(stroke.props.brush.color, background, stroke.parentId);
   context.beginPath();
-  context.moveTo(outline[0].x, outline[0].y);
-  for (const point of outline.slice(1)) context.lineTo(point.x, point.y);
-  context.closePath();
+  for (const [start, ...rest] of strokeContours(stroke)) {
+    if (!start) continue;
+    context.moveTo(start.x, start.y);
+    for (const point of rest) context.lineTo(point.x, point.y);
+    context.closePath();
+  }
   context.fill();
 }
 
@@ -157,6 +159,7 @@ export async function exportPng(board: PortableBoard, options: ExportOptions = {
       else if (object.type === "text") drawTextObject(context, object, contrastColor(object.props.color, options.background, object.parentId));
       else if (object.type === "equation") drawEquationObject(context, object, contrastColor(object.props.color, options.background, object.parentId));
       else if (object.type === "plot") drawPlotObject(context, object, (color) => contrastColor(color, options.background, object.parentId));
+      else if (object.type === "solid") drawSolid(context, object, contrastColor(object.props.color, options.background, object.parentId));
       else if (object.type === "instrument") drawInstrument(context, object, options.background === "#171e2d");
       else {
         const [a, b, c, d] = object.transform;
@@ -253,8 +256,6 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
   }
 
   function vectorInk(page: PDFPage, object: Stroke): void {
-    const outline = strokeOutline(object);
-    if (!outline.length) return;
     const opacity = object.props.brush.opacity ?? 1;
     if (opacity !== 1) {
       const state = extStates.get(opacity) ?? output.context.obj({ Type: "ExtGState", ca: opacity });
@@ -264,8 +265,11 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
     }
     const color = contrastColor(object.props.brush.color, options.background, object.parentId);
     page.pushOperators(pdf.setFillingRgbColor(...colorComponents(color)));
-    trace(page, outline);
-    page.pushOperators(pdf.closePath(), pdf.fill());
+    for (const outline of strokeContours(object)) {
+      trace(page, outline);
+      page.pushOperators(pdf.closePath());
+    }
+    page.pushOperators(pdf.fill());
   }
 
   function vectorShape(page: PDFPage, object: ShapeObject): void {
@@ -405,6 +409,29 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
     await drawVectorLabels(page, labels, ink);
   }
 
+  function vectorSolid(page: PDFPage, object: SolidObject): void {
+    const { size, color } = object.props;
+    const ink = colorComponents(contrastColor(color, options.background, object.parentId));
+    page.pushOperators(pdf.setStrokingRgbColor(...ink), pdf.setFillingRgbColor(...ink), pdf.setLineWidth(size),
+      pdf.setLineCap(pdf.LineCapStyle.Round), pdf.setLineJoin(pdf.LineJoinStyle.Round));
+    for (const { start, segments, role, closed } of projectSolid(object.props, size).paths) {
+      page.pushOperators(pdf.moveTo(start.x, start.y));
+      for (const { end, controls } of segments) {
+        if (controls) page.pushOperators(pdf.appendBezierCurve(controls[0].x, controls[0].y, controls[1].x, controls[1].y, end.x, end.y));
+        else page.pushOperators(pdf.lineTo(end.x, end.y));
+      }
+      if (closed) page.pushOperators(pdf.closePath());
+      if (role === "face") {
+        const state = extStates.get(SOLID_FILL_OPACITY) ?? output.context.obj({ Type: "ExtGState", ca: SOLID_FILL_OPACITY });
+        extStates.set(SOLID_FILL_OPACITY, state);
+        const name = page.node.newExtGState("SolidFaceOpacity", state);
+        page.pushOperators(pdf.pushGraphicsState(), pdf.setGraphicsState(name), pdf.fill(), pdf.popGraphicsState());
+      } else {
+        page.pushOperators(pdf.setDashPattern(role === "visible" ? [] : solidDash(size), 0), pdf.stroke());
+      }
+    }
+  }
+
   async function embedPageOrImage(object: PageObject): Promise<OriginalPage | PDFImage> {
     const asset = findAsset(assets, object);
     if (object.type === "image") return embedRaster(output, asset);
@@ -446,6 +473,7 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
         else if (object.type === "text") await drawPdfText(page, object);
         else if (object.type === "equation") vectorEquation(page, object);
         else if (object.type === "plot") await vectorPlot(page, object);
+        else if (object.type === "solid") vectorSolid(page, object);
         else if (object.type === "instrument") await vectorInstrument(page, object);
         else {
           const { width, height, assetId, pageIndex } = object.props;

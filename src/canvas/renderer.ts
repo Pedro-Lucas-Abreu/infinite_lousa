@@ -1,8 +1,8 @@
 import { viewportBounds, worldToScreen } from '../core/camera'
 import type { Scene } from '../core/scene'
-import { strokeOutline } from '../core/stroke'
+import { strokeContours } from '../core/stroke'
 import type { Affine, BoardObject, Bounds, Camera, InstrumentObject, PageObject, Point, Stroke, Viewport } from '../core/types'
-import { drawEquationObject, drawInstrument, drawPlotObject, drawShape, drawTextObject } from './drawings'
+import { drawEquationObject, drawInstrument, drawPlotObject, drawShape, drawSolid, drawTextObject } from './drawings'
 import { rectanglePoints, selectionHandles } from './geometry'
 
 export type BoardBackground = 'white' | 'dark' | 'dotted' | 'grid' | 'millimeter'
@@ -35,17 +35,18 @@ export interface BackgroundFrameMetrics {
   instrumentsChanged: boolean
 }
 
-function createPath(points: readonly Point[]): Path2D {
+function createPath(stroke: Stroke, complete = true): Path2D {
   const path = new Path2D()
-  const start = points[0]
-  if (!start) return path
-
-  path.moveTo(start.x, start.y)
-  for (let i = 1; i < points.length; i++) {
-    const point = points[i]!
-    path.lineTo(point.x, point.y)
+  for (const points of strokeContours(stroke, complete)) {
+    const start = points[0]
+    if (!start) continue
+    path.moveTo(start.x, start.y)
+    for (let i = 1; i < points.length; i++) {
+      const point = points[i]!
+      path.lineTo(point.x, point.y)
+    }
+    path.closePath()
   }
-  path.closePath()
   return path
 }
 
@@ -124,7 +125,7 @@ export class CanvasRenderer {
 
   drawConfirmedStroke(stroke: Stroke, camera: Camera): boolean {
     const cached = this.paths.get(stroke)
-    const path = cached ?? createPath(strokeOutline(stroke))
+    const path = cached ?? createPath(stroke)
     if (!cached) this.paths.set(stroke, path)
 
     this.paint(this.confirmedContext, stroke, path, camera)
@@ -135,7 +136,7 @@ export class CanvasRenderer {
     if (this.liveHasInk) this.clear(this.liveContext)
     const context = this.liveContext
     for (const object of this.instruments) this.drawObject(context, object, camera)
-    if (stroke) this.paint(context, stroke, createPath(strokeOutline(stroke, false)), camera)
+    if (stroke) this.paint(context, stroke, createPath(stroke, false), camera)
     if (overlay) {
       for (const object of overlay.previewObjects ?? []) this.drawObject(context, object, camera)
       this.drawOverlay(overlay, camera)
@@ -174,7 +175,7 @@ export class CanvasRenderer {
 
   private drawObject(context: CanvasRenderingContext2D, object: BoardObject, camera: Camera): void {
     if (object.type === 'stroke') {
-      const path = this.paths.get(object) ?? createPath(strokeOutline(object))
+      const path = this.paths.get(object) ?? createPath(object)
       this.paint(context, object, path, camera)
       return
     }
@@ -198,6 +199,10 @@ export class CanvasRenderer {
     }
     if (object.type === 'plot') {
       drawPlotObject(context, object, (color) => this.boardColor(color, object.parentId))
+      return
+    }
+    if (object.type === 'solid') {
+      drawSolid(context, object, this.boardColor(object.props.color, object.parentId))
       return
     }
     const [a, b, c, d] = object.transform

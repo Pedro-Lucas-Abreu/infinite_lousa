@@ -126,7 +126,7 @@ test('pointer dispatch follows the documented controls', () => {
 test('keyboard handlers dispatch registry actions instead of comparing raw keys', () => {
   const handlers = ['src/main.tsx', 'src/canvas/controller.ts', 'src/ui/text-editor.tsx',
     'src/ui/equation-editor.tsx', 'src/ui/shortcuts-panel.tsx', 'src/ui/plot-editor.tsx', 'src/ui/quick-graph.tsx',
-    'src/ui/calculator.tsx', 'src/ui/bhaskara.tsx', 'src/ui/new-board-dialog.tsx']
+    'src/ui/calculator.tsx', 'src/ui/bhaskara.tsx', 'src/ui/new-board-dialog.tsx', 'src/ui/solid-editor.tsx']
   const rawDispatch = /\b(?:event|nativeEvent)\.(?:key|code)(?:\.toLowerCase\(\)|\s*[!=]==?)|\bswitch\s*\(\s*(?:event|nativeEvent)\.(?:key|code)\s*\)/
   for (const file of handlers) {
     const source = readFileSync(file, 'utf8')

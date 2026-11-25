@@ -1,9 +1,10 @@
-import { strokeOutline } from '../core/stroke'
+import { strokeContours } from '../core/stroke'
 import type { Affine, BoardObject, Bounds, InstrumentObject, Point, ShapeObject, Stroke } from '../core/types'
 import { getInstrumentGeometry } from '../instruments/geometry'
 import { hitContours, type ShapeContour } from './shapes'
 
 const outlines = new WeakMap<BoardObject, readonly Point[]>()
+const inkContours = new WeakMap<Stroke, readonly (readonly Point[])[]>()
 const shapeOutlines = new WeakMap<ShapeObject, readonly ShapeContour[]>()
 
 export function transformPoint([a, b, c, d, e, f]: Affine, point: Point): Point {
@@ -14,19 +15,23 @@ export function multiplyTransforms([a, b, c, d, e, f]: Affine, [g, h, i, j, k, l
   return [a * g + c * h, b * g + d * h, a * i + c * j, b * i + d * j, a * k + c * l + e, b * k + d * l + f]
 }
 
-function outline(object: Exclude<BoardObject, ShapeObject>): readonly Point[] {
+function outline(object: Exclude<BoardObject, ShapeObject | Stroke>): readonly Point[] {
   const cached = outlines.get(object)
   if (cached) return cached
 
-  let local: readonly Point[]
-  if (object.type === 'stroke') local = strokeOutline(object)
-  else {
-    const { width, height } = object.props
-    local = [{ x: 0, y: 0 }, { x: width, y: 0 }, { x: width, y: height }, { x: 0, y: height }]
-  }
+  const { width, height } = object.props
+  const local = [{ x: 0, y: 0 }, { x: width, y: 0 }, { x: width, y: height }, { x: 0, y: height }]
   const result = local.map((point) => transformPoint(object.transform, point))
   outlines.set(object, result)
   return result
+}
+
+function worldInk(stroke: Stroke): readonly (readonly Point[])[] {
+  const cached = inkContours.get(stroke)
+  if (cached) return cached
+  const contours = strokeContours(stroke).map((points) => points.map((point) => transformPoint(stroke.transform, point)))
+  inkContours.set(stroke, contours)
+  return contours
 }
 
 export function boundsFromPoints(points: readonly Point[]): Bounds {
@@ -115,6 +120,7 @@ function touchesContour(start: Point, end: Point, contour: ShapeContour, radius:
 }
 
 export function hitObject(object: BoardObject, point: Point, radius: number): boolean {
+  if (object.type === 'stroke') return hitInk(object, point, point, radius)
   if (object.type === 'shape') {
     return worldShapeContours(object).some((contour) => touchesContour(point, point, contour, radius + shapeRadius(object)))
   }
@@ -126,8 +132,8 @@ export function hitObject(object: BoardObject, point: Point, radius: number): bo
 }
 
 export function hitInk(stroke: Stroke, start: Point, end: Point, radius: number): boolean {
-  const polygon = outline(stroke)
-  return pointInside(start, polygon) || pointInside(end, polygon) || touchesOutline(start, end, polygon, radius)
+  return worldInk(stroke).some((polygon) =>
+    pointInside(start, polygon) || pointInside(end, polygon) || touchesOutline(start, end, polygon, radius))
 }
 
 export function regionIntersects(object: BoardObject, region: readonly Point[]): boolean {
@@ -141,11 +147,13 @@ export function regionIntersects(object: BoardObject, region: readonly Point[]):
       (region[0] !== undefined && pointInside(region[0], body)) ||
       region.some((point, index) => touchesOutline(point, region[(index + 1) % region.length]!, body, 0)))
   }
-  const polygon = outline(object)
-  const start = polygon[0], regionStart = region[0]
-  if (!start || !regionStart) return false
-  return pointInside(start, region) || (object.type !== 'frame' && pointInside(regionStart, polygon)) ||
-    region.some((a, i) => touchesOutline(a, region[(i + 1) % region.length]!, polygon, 0))
+  const contours = object.type === 'stroke' ? worldInk(object) : [outline(object)]
+  return contours.some((polygon) => {
+    const start = polygon[0], regionStart = region[0]
+    if (!start || !regionStart) return false
+    return pointInside(start, region) || (object.type !== 'frame' && pointInside(regionStart, polygon)) ||
+      region.some((a, i) => touchesOutline(a, region[(i + 1) % region.length]!, polygon, 0))
+  })
 }
 
 export function fittingFrame(start: Point, end: Point): Bounds {

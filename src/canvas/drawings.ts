@@ -1,7 +1,8 @@
 import { shapeArcSegments, shapeArrowHead } from "../core/shapes";
-import type { EquationObject, InstrumentObject, PlotObject, ShapeObject, TextObject } from "../core/types";
+import type { EquationObject, InstrumentObject, PlotObject, ShapeObject, SolidObject, TextObject } from "../core/types";
 import { getInstrumentGeometry } from "../instruments/geometry";
 import { getPlotGeometry, type PlotLine } from "../plot/geometry";
+import { projectSolid, solidDash, SOLID_FILL_OPACITY } from "../solids/geometry";
 
 export const TEXT_LINE_HEIGHT = 1.25;
 export const PLOT_GRID_OPACITY = 0.28;
@@ -161,6 +162,33 @@ export function drawInstrument(context: CanvasRenderingContext2D, object: Instru
     context.font = `${size}px Arial, sans-serif`;
     context.textAlign = align;
     context.fillText(text, x, y);
+  }
+  context.restore();
+}
+
+export function drawSolid(context: CanvasRenderingContext2D, object: SolidObject, color: string): void {
+  const { size } = object.props;
+  context.save();
+  context.strokeStyle = context.fillStyle = color;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.lineWidth = size;
+  for (const { start, segments, role, closed } of projectSolid(object.props, size).paths) {
+    context.beginPath();
+    context.moveTo(start.x, start.y);
+    for (const { end, controls } of segments) {
+      if (controls) context.bezierCurveTo(controls[0].x, controls[0].y, controls[1].x, controls[1].y, end.x, end.y);
+      else context.lineTo(end.x, end.y);
+    }
+    if (closed) context.closePath();
+    if (role === "face") {
+      context.globalAlpha = SOLID_FILL_OPACITY;
+      context.fill();
+      context.globalAlpha = 1;
+    } else {
+      context.setLineDash(role === "visible" ? [] : solidDash(size));
+      context.stroke();
+    }
   }
   context.restore();
 }

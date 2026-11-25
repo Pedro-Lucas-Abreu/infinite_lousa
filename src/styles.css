@@ -356,7 +356,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-vi
   font-size: .875rem;
 }
 .plot-editor input:not([type='checkbox']) { width: 100%; min-width: 0; }
-.plot-editor input[type='text'], .plot-editor input[type='color'] {
+.plot-editor input[type='text'], .plot-editor input[type='color'],
+.solid-editor input[type='number'], .solid-editor select {
   height: 38px;
   padding: 4px 7px;
   border: 1px solid var(--line);
@@ -370,6 +371,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-vi
 .plot-editor .plot-aspect { display: flex; align-items: center; min-height: 38px; gap: 6px; }
 .plot-appearance { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; }
 .plot-appearance output { color: #192038; font-variant-numeric: tabular-nums; }
+.solid-editor .plot-range-fields, .solid-views { margin-top: 8px; }
+.solid-views { display: flex; flex-wrap: wrap; gap: 6px; }
+.solid-editor label > output { font-variant-numeric: tabular-nums; }
 .plot-function { display: grid; grid-template-columns: minmax(0, 1fr) 44px auto; align-items: end; gap: 5px 6px; }
 .plot-function + .plot-function { margin-top: 8px; }
 .plot-functions > button { margin-top: 8px; }
