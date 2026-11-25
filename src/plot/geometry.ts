@@ -55,7 +55,7 @@ const MAX_SUBDIVISION = 8
 const CURVE_TOLERANCE = 0.0015
 
 export const DEFAULT_PLOT_SETTINGS: PlotSettings = {
-  xmin: -10, xmax: 10, ymin: -6, ymax: 6, step: 1, lockAspect: true,
+  xmin: -10, xmax: 10, ymin: -10, ymax: 10, step: 1, lockAspect: true,
 }
 
 export function validatePlotSettings(settings: PlotSettings): string | undefined {

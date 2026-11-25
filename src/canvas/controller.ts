@@ -909,7 +909,7 @@ export class BoardController {
     if (!action) return
     const target = event.target
     if (target instanceof HTMLElement && (target.isContentEditable ||
-      target.closest('input, textarea, select, button, a, [role="button"], dialog[open]'))) return
+      target.closest('input, textarea, select, button, a, [role="button"], [data-board-editor], dialog[open]'))) return
 
     if (action === 'hold-pan') this.spaceHeld = true
     else if (action === 'hold-eraser') this.eraserHeld = true

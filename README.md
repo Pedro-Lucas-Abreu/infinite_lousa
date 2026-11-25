@@ -28,6 +28,8 @@ Pressione **?** ou abra **Arquivo → Atalhos** para consultar a lista completa,
 | Inserir e editar equação | `Q` abre o editor LaTeX no ponteiro ou no centro da lousa. `Enter` insere. Com **Seleção**, dê duplo clique na equação para reabrir o código |
 | Desenhar formas | `L` linha, `A` seta, `W` retângulo, `O` elipse e `C` polígono. Arraste para desenhar. No polígono, clique nos vértices e confirme com `Enter` ou duplo clique |
 | Inserir e editar plano cartesiano | `F2` ou **Formas → Plano cartesiano** para inserir. Com **Seleção** ou **Laço**, dê duplo clique para editar |
+| Criar um gráfico direto | **Gráfico** ou `Z`, seguido de uma expressão como `y = x^2 - 4`. Com um plano selecionado, a função é adicionada a ele |
+| Abrir calculadora científica ou Bhaskara | **Calculadora** ou `F8`. **Bhaskara** ou `Shift+F8`. Arraste o painel pelo cabeçalho |
 | Inserir instrumentos | Menu **Instrumentos** ou `Alt+1` régua, `Alt+2` esquadro de 45°, `Alt+3` esquadro de 30°–60°, `Alt+4` transferidor |
 | Desenhar com o compasso | `Alt+5` para círculo e `Alt+6` para arco. Arraste para definir o raio. Para arco, arraste de novo para definir a abertura |
 | Restringir formas | Segure `Shift` para ângulos de 45° em linhas, setas ou segmentos do polígono e para desenhar quadrados ou círculos |
@@ -48,6 +50,8 @@ Pressione **?** ou abra **Arquivo → Atalhos** para consultar a lista completa,
 Experimente `2x = 10`, `x_1^2`, `\frac{1}{2}`, `\sqrt{x}`, `\sqrt[3]{x}` e `\log x + \ln x`. Para letras gregas e símbolos, use por exemplo `\alpha`, `\le`, `\ge`, `\ne`, `\pm` e `\infty`. A equação usa a cor ativa ao ser inserida e permanece vetorial na lousa e no PDF.
 
 Em um plano cartesiano, ajuste os limites dos eixos, o passo e a proporção 1:1. Use **Adicionar função** para desenhar várias curvas, cada uma com sua cor. A ajuda no editor descreve a sintaxe. Exemplos incluem `2x+1`, `0,5x^2`, `2^x`, `sqrt(x)`, `abs(x)`, `1/x` e `sin(x)`. Use vírgula ou ponto como separador decimal. `log(x)` usa base 10, `ln(x)` usa base natural e as funções trigonométricas usam radianos.
+
+A calculadora científica usa vírgula na tela e aceita ponto ao digitar. **2nd** alterna as funções do teclado. Use **Enter** para calcular, **Esc** para limpar e, com o campo vazio, **Esc** para fechar. A calculadora começa em graus. Em **Bhaskara**, digite `x²-5x+6=0` ou forneça os coeficientes como `3/2` ou `0,5`. Use **Inserir na lousa** para guardar a resolução como equações editáveis e incluí-la no PDF.
 
 Os instrumentos ficam sobre a lousa. Em **Seleção**, arraste o corpo para mover e a alça superior para girar. Com **Caneta**, comece o gesto a cerca de 12 px de uma borda da régua ou do esquadro para desenhar sobre ela. A régua tem 10 cm na escala visual do instrumento. **Arquivo → Incluir instrumentos no PDF** ou `Alt+7` inclui as guias no PDF como vetor. Círculos, arcos e tinta fazem parte do desenho exportado por padrão.
 

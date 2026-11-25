@@ -36,7 +36,7 @@ test('shortcuts have unique IDs and unambiguous key combinations within each con
   assert.deepEqual(new Set(shortcuts.map(({ category }) => category)),
     new Set(['Ferramentas', 'Lousa', 'PDF e quadros', 'Equações', 'Edição']))
 
-  const scopes: ShortcutScope[] = ['board', 'controller', 'text', 'equation', 'panel', 'plot']
+  const scopes: ShortcutScope[] = ['board', 'controller', 'text', 'equation', 'panel', 'plot', 'quick-graph', 'calculator', 'bhaskara']
   const probes = shortcuts.flatMap(({ bindings }) => bindings.map((binding) => example(binding)))
   for (const sample of probes) {
     for (const ctrlKey of [false, true]) for (const metaKey of [false, true]) {
@@ -125,7 +125,8 @@ test('pointer dispatch follows the documented controls', () => {
 
 test('keyboard handlers dispatch registry actions instead of comparing raw keys', () => {
   const handlers = ['src/main.tsx', 'src/canvas/controller.ts', 'src/ui/text-editor.tsx',
-    'src/ui/equation-editor.tsx', 'src/ui/shortcuts-panel.tsx', 'src/ui/plot-editor.tsx']
+    'src/ui/equation-editor.tsx', 'src/ui/shortcuts-panel.tsx', 'src/ui/plot-editor.tsx', 'src/ui/quick-graph.tsx',
+    'src/ui/calculator.tsx', 'src/ui/bhaskara.tsx']
   const rawDispatch = /\b(?:event|nativeEvent)\.(?:key|code)(?:\.toLowerCase\(\)|\s*[!=]==?)|\bswitch\s*\(\s*(?:event|nativeEvent)\.(?:key|code)\s*\)/
   for (const file of handlers) {
     const source = readFileSync(file, 'utf8')

@@ -1,0 +1,40 @@
+.floating-panel.bhaskara-panel { width: min(420px, calc(100vw - 16px)); }
+
+.bhaskara-form, .bhaskara-result { display: grid; gap: 10px; }
+.bhaskara-form label { display: grid; min-width: 0; gap: 4px; font-size: .875rem; font-weight: 600; }
+.bhaskara-form input {
+  min-width: 0;
+  min-height: 38px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 400;
+}
+.bhaskara-form fieldset { min-width: 0; padding: 0; border: 0; margin: 0; }
+.bhaskara-form legend { margin-bottom: 5px; color: var(--muted); font-size: .8125rem; }
+.bhaskara-coefficients { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.bhaskara-form button[type='submit'], .bhaskara-result button {
+  justify-self: start;
+  padding-inline: 12px;
+  background: var(--accent);
+  color: #fff;
+}
+.bhaskara-error { margin: 8px 0 0; color: #a52331; font-size: .875rem; }
+.bhaskara-result { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.bhaskara-result h3 { margin: 0; font-size: 1rem; }
+.bhaskara-roots { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.bhaskara-roots li {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+.bhaskara-roots small { color: var(--muted); }
+.bhaskara-steps { display: grid; gap: 6px; margin: 0; padding-left: 24px; }
+.bhaskara-steps li { min-width: 0; padding-left: 2px; }
+.bhaskara-steps svg { display: block; max-width: 100%; height: auto; }
+.bhaskara-steps code { display: block; padding-block: 2px; overflow-wrap: anywhere; font-size: .75rem; }

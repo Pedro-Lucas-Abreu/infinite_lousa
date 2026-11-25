@@ -3,7 +3,8 @@ import { PLOT_GRID_OPACITY, PLOT_GRID_WIDTH_RATIO } from '../canvas/drawings'
 import type { PlotObject } from '../core/types'
 import { MAX_PLOT_EXPRESSION_LENGTH, parsePlotExpression } from '../plot/expression'
 import { getPlotGeometry, MAX_PLOT_FUNCTIONS, validatePlotSettings } from '../plot/geometry'
-import type { PlotFunction, PlotLine, PlotSettings } from '../plot/geometry'
+import type { PlotFunction, PlotGeometry, PlotLine, PlotSettings } from '../plot/geometry'
+import { nextPlotColor, PLOT_NOT_VISIBLE } from '../plot/quick-graph'
 import { findShortcut, shortcutAria } from '../shortcuts'
 
 interface Props {
@@ -17,7 +18,6 @@ type FunctionDraft = PlotFunction & { id: string }
 const rangeFields = [
   ['xmin', 'X mínimo'], ['xmax', 'X máximo'], ['ymin', 'Y mínimo'], ['ymax', 'Y máximo'], ['step', 'Passo'],
 ] as const
-const curveColors = ['#2158ad', '#bd3b47', '#177345', '#864997', '#ac5a21', '#247784']
 const textAnchor = { left: 'start', center: 'middle', right: 'end' } as const
 
 function readDecimal(value: string): number {
@@ -36,8 +36,10 @@ function segmentsPath(segments: readonly PlotLine[]): string {
   return segments.map(({ from, to }) => `M${from.x},${from.y}L${to.x},${to.y}`).join(' ')
 }
 
-function PlotPreview({ settings, width, height, size, color, functions }: PlotObject['props']) {
-  const { axes, grid, labels, curves, fontSize } = getPlotGeometry(settings, width, height, functions)
+function PlotPreview({ geometry, width, height, size, color }: Pick<PlotObject['props'], 'width' | 'height' | 'size' | 'color'> & {
+  geometry: PlotGeometry
+}) {
+  const { axes, grid, labels, curves, fontSize } = geometry
   return (
     <svg role="img" aria-label="Prévia do plano cartesiano" viewBox={`0 0 ${width} ${height}`}>
       <g fill="none" strokeLinejoin="round" strokeLinecap="round">
@@ -85,9 +87,13 @@ export function PlotEditor({ initial, editing, onSave, onCancel }: Props) {
   const maxSize = Math.max(12, initial.size)
   const scaleError = validatePlotSettings(settings)
   const functionErrors = functions.map(({ expression }) => checkExpression(expression))
-  const validFunctions = functions.flatMap(({ expression, color }, index) =>
-    !functionErrors[index] && expression.trim() ? [{ expression: expression.trim(), color }] : [])
-  const props = { width: initial.width, height: initial.height, color, size, settings, functions: validFunctions }
+  const validFunctions = functions.flatMap(({ id, expression, color }, index) =>
+    !functionErrors[index] && expression.trim() ? [{ id, expression: expression.trim(), color }] : [])
+  const props = { width: initial.width, height: initial.height, color, size, settings,
+    functions: validFunctions.map(({ expression, color }) => ({ expression, color })) }
+  const geometry = scaleError ? undefined : getPlotGeometry(settings, props.width, props.height, props.functions)
+  const hiddenFunctions = new Set(validFunctions.filter((_, index) => geometry?.curves[index]?.paths.length === 0)
+    .map(({ id }) => id))
   const canSave = !scaleError && !functionErrors.some(Boolean)
 
   useLayoutEffect(() => {
@@ -116,7 +122,7 @@ export function PlotEditor({ initial, editing, onSave, onCancel }: Props) {
     if (functions.length >= MAX_PLOT_FUNCTIONS) return
     focusNewFunction.current = true
     setFunctions((current) => [...current, {
-      id: crypto.randomUUID(), expression: '', color: curveColors[current.length % curveColors.length],
+      id: crypto.randomUUID(), expression: '', color: nextPlotColor(current),
     }])
   }
 
@@ -178,7 +184,8 @@ export function PlotEditor({ initial, editing, onSave, onCancel }: Props) {
                     <input type="text" placeholder="2x + 1" value={expression} spellCheck={false} autoComplete="off"
                       ref={index === functions.length - 1 ? lastFunction : undefined} maxLength={MAX_PLOT_EXPRESSION_LENGTH}
                       aria-invalid={Boolean(functionErrors[index])}
-                      aria-describedby={functionErrors[index] ? `plot-error-${id}` : undefined}
+                      aria-describedby={functionErrors[index] ? `plot-error-${id}`
+                        : hiddenFunctions.has(id) ? `plot-warning-${id}` : undefined}
                       onChange={(event) => updateFunction(id, { expression: event.target.value })} />
                   </label>
                   <label>Cor
@@ -188,6 +195,7 @@ export function PlotEditor({ initial, editing, onSave, onCancel }: Props) {
                   <button type="button" aria-label={`Remover função ${index + 1}`}
                     onClick={() => setFunctions((current) => current.filter((item) => item.id !== id))}>Remover</button>
                   {functionErrors[index] && <p className="plot-error" id={`plot-error-${id}`} role="status">{functionErrors[index]}</p>}
+                  {hiddenFunctions.has(id) && <p className="plot-warning" id={`plot-warning-${id}`} role="status">{PLOT_NOT_VISIBLE}</p>}
                 </div>
               ))}
               <button type="button" onClick={addFunction} disabled={functions.length >= MAX_PLOT_FUNCTIONS}>
@@ -207,9 +215,7 @@ export function PlotEditor({ initial, editing, onSave, onCancel }: Props) {
           </div>
           <section className="plot-editor-preview" aria-label="Prévia">
             <h3>Prévia</h3>
-            {scaleError
-              ? <p>Confira a escala para ver o plano.</p>
-              : <PlotPreview {...props} />}
+            {geometry ? <PlotPreview {...props} geometry={geometry} /> : <p>Confira a escala para ver o plano.</p>}
           </section>
         </div>
         <footer className="plot-editor-actions">

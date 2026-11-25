@@ -1,6 +1,6 @@
 import { latexExpansionDetails, latexReplacementDetails } from '../equations/shortcuts'
 
-export type ShortcutScope = 'board' | 'controller' | 'text' | 'equation' | 'panel' | 'plot'
+export type ShortcutScope = 'board' | 'controller' | 'text' | 'equation' | 'panel' | 'plot' | 'quick-graph' | 'calculator' | 'bhaskara'
 export type ShortcutCategory = 'Ferramentas' | 'Lousa' | 'PDF e quadros' | 'Equações' | 'Edição'
 
 export interface KeyBinding {
@@ -152,6 +152,10 @@ export const shortcuts = [
   board('laser', 'Lousa', 'Ligar ou desligar laser', plain('k', true)),
   board('spotlight', 'Lousa', 'Ligar ou desligar spotlight', plain('s', true)),
   board('new-plot', 'Ferramentas', 'Inserir plano cartesiano', plain('F2', true)),
+  board('open-quick-graph', 'Ferramentas', 'Gráfico — inserir função', plain('z', true)),
+  board('open-calculator', 'Ferramentas', 'Abrir calculadora científica', { key: 'F8', single: true }),
+  board('open-bhaskara', 'Ferramentas', 'Abrir resolução por Bhaskara', { key: 'F8', shift: true, single: true }),
+  entry('move-math-panel', 'board', 'Ferramentas', 'Mover calculadora ou painel de Bhaskara', [], ['Arraste pelo cabeçalho']),
   board('insert-ruler', 'Ferramentas', 'Régua', { ...alt('1'), single: true }),
   board('insert-set-square-45', 'Ferramentas', 'Esquadro de 45°', { ...alt('2'), single: true }),
   board('insert-set-square-30', 'Ferramentas', 'Esquadro de 30°–60°', { ...alt('3'), single: true }),
@@ -171,6 +175,17 @@ export const shortcuts = [
     [{ gesture: 'edit', button: primary }]),
   entry('plot-save', 'plot', 'Edição', 'Inserir ou salvar plano cartesiano', [{ key: 'Enter' }]),
   entry('plot-cancel', 'plot', 'Edição', 'Cancelar edição do plano cartesiano', [plain('Escape')]),
+  entry('quick-graph-save', 'quick-graph', 'Ferramentas', 'Inserir a função no gráfico', [plain('Enter')]),
+  entry('quick-graph-cancel', 'quick-graph', 'Ferramentas', 'Fechar a caixa do gráfico', [plain('Escape')]),
+  entry('calculator-input', 'calculator', 'Ferramentas', 'Digitar na calculadora',
+    [...'0123456789', ',', '.', '+', '-', '−', '*', '×', '/', '÷', '^', '%', '!', '(', ')', 'e', 'π']
+      .map((key) => ({ ...plain(key), hidden: true })), ['0–9', ', ou .', '+ − * / ^ % !', '( )', 'E', 'π']),
+  entry('calculator-evaluate', 'calculator', 'Ferramentas', 'Calcular o resultado', [plain('Enter'), plain('=')]),
+  entry('calculator-backspace', 'calculator', 'Ferramentas', 'Apagar o último caractere da calculadora', [plain('Backspace')]),
+  entry('calculator-escape', 'calculator', 'Ferramentas', 'Limpar a calculadora ou fechar o painel vazio', [plain('Escape')]),
+  entry('calculator-paste', 'calculator', 'Ferramentas', 'Colar um número na calculadora', [{ ...command('v'), native: true }]),
+  entry('bhaskara-solve', 'bhaskara', 'Ferramentas', 'Resolver a equação no painel de Bhaskara', [plain('Enter')]),
+  entry('bhaskara-cancel', 'bhaskara', 'Ferramentas', 'Fechar o painel de Bhaskara', [plain('Escape')]),
   entry('edit-equation', 'controller', 'Equações', 'Editar equação com seleção ou laço', [], ['Duplo clique'],
     [{ gesture: 'edit', button: primary }]),
   entry('equation-save', 'equation', 'Equações', 'Inserir ou salvar equação', [plain('Enter')]),

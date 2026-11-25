@@ -52,12 +52,13 @@ type Props = {
   onDock: (dock: Dock) => void
   onTool: (tool: BoardTool) => void
   onPlot: () => void
+  onQuickGraph: () => void
   onInstrument: (kind: Exclude<InstrumentKind, 'compass'>) => void
   onFavorite: (index: number) => void
   onEditFavorite: (style: BrushStyle) => void
 }
 
-export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onPlot, onInstrument, onFavorite, onEditFavorite }: Props) {
+export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onPlot, onQuickGraph, onInstrument, onFavorite, onEditFavorite }: Props) {
   const [dragging, setDragging] = useState(false)
   const shape = shapeTools.find((entry) => entry.id === tool)
   const compass = compassTools.find((entry) => entry.id === tool)
@@ -100,6 +101,10 @@ export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onPlot,
           </button>
         ))}
       </div>
+      <button type="button" className="quick-graph-tool" aria-haspopup="dialog" aria-keyshortcuts={shortcutAria('open-quick-graph')}
+        title={`Gráfico (${shortcutLabel('open-quick-graph')})`} onClick={onQuickGraph}>
+        <span aria-hidden="true" data-ui-icon>↗</span><small>Gráfico</small>
+      </button>
       <details className="tool-settings shapes-menu">
         <summary title="Escolher uma forma" aria-label="Formas">{shape?.label ?? 'Formas'}</summary>
         <div className="tool-settings-body shape-choices">

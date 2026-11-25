@@ -1,0 +1,66 @@
+.calculator-panel { width: min(330px, calc(100% - 16px)); }
+
+.calculator-display {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  color: var(--ink);
+  background: #f1f4f9;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.calculator-display input {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 0;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  text-align: end;
+  font: inherit;
+}
+
+.calculator-display output {
+  display: block;
+  min-height: 1.25em;
+  overflow-wrap: anywhere;
+  text-align: end;
+  font-size: 1.85rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.calculator-display .calculator-error { color: #8c243c; font-size: 1.05rem; }
+.calculator-keys, .calculator-trigonometry { display: grid; gap: 4px; margin-top: 6px; }
+.calculator-keys { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.calculator-trigonometry { grid-template-columns: 1.5fr repeat(3, minmax(0, 1fr)); }
+.calculator-panel button { font: inherit; }
+
+.calculator-keys button, .calculator-trigonometry button, .calculator-actions button {
+  min-height: 37px;
+  padding: 4px;
+  color: var(--ink);
+  background: #f8faff;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.calculator-keys button[data-kind="operator"] { color: #213f80; }
+.calculator-keys button[aria-pressed="true"], .calculator-keys button[data-kind="accent"] {
+  color: white;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.calculator-keys button:not([aria-pressed="true"]):not([data-kind="accent"]):hover,
+.calculator-trigonometry button:hover, .calculator-actions button:enabled:hover { background: #e8ebf2; }
+.calculator-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: .85rem; }
+.calculator-actions button { padding-inline: 8px; }
+.calculator-actions button:disabled { opacity: .55; cursor: default; }
+.calculator-actions span { color: var(--muted); }
+.calculator-history { margin-top: 8px; font-size: .85rem; }
+.calculator-history summary { cursor: pointer; }
+.calculator-history ol { display: grid; gap: 4px; max-height: 138px; margin: 6px 0; padding: 0; overflow: auto; list-style: none; }
+.calculator-history li { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; padding: 4px; border-bottom: 1px solid var(--line); }
+.calculator-history li span { color: var(--muted); overflow-wrap: anywhere; min-width: 0; }
+.calculator-history p, .calculator-hint { margin: 5px 0 0; color: var(--muted); font-size: .775rem; }

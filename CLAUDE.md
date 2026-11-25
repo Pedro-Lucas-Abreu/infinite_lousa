@@ -23,6 +23,12 @@
 - Instruments are scene objects with shared vector geometry for the canvas and opt-in PDF export. Their standard transforms, clipboard operations and undo use the existing scene history. PDF exports omit the guides by default. Compass circles and arcs are separate shape objects.
 - Pen strokes that start within 12 CSS pixels of a ruler or set square edge use that world-space segment for the full gesture. Arc mode takes two drags and uses cubic Bézier segments for the drawing. The draft is transient and Esc cancels it.
 
+## Quick graph, calculator and quadratic solver
+
+- Quick graph uses the same plot objects and window defaults as the detailed editor. It adds to a selected plot or inserts a new one in view. Invisible curves are detected from the generated paths. The board can still store functions outside the current window.
+- The calculator shares the arithmetic parser with plotting. Calculator-specific domain errors, angles, remainder and factorial use the calculator context. The display rounds to 12 significant digits while chained calculations use the full result.
+- Bhaskara uses normalized rational coefficients. Radical simplification extracts factors through 10,000 and any remaining perfect square. A large composite can remain under the radical with its exact value. The floating panels are UI state. Inserting a derivation creates ordinary vector equation objects in one history operation.
+
 ## Milestone 1 decisions
 
 - `src/core` owns scene data, coordinates, spatial queries, and stroke geometry. Keep the model serializable. Canvas contexts, `Path2D` objects and index entries are derived state.

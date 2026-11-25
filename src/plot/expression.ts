@@ -1,8 +1,9 @@
 export const MAX_PLOT_EXPRESSION_LENGTH = 256
 
 export type PlotExpression = (x: number, branches?: number[]) => number
+export type AngleUnit = 'degrees' | 'radians'
 
-type Operator = '+' | '-' | '*' | '/' | '^' | '(' | ')'
+type Operator = '+' | '-' | '*' | '/' | '^' | '(' | ')' | '!' | '%'
 type Token =
   | { kind: 'number'; value: number }
   | { kind: 'name'; text: string }
@@ -13,6 +14,9 @@ const functions = {
   log: Math.log10,
   ln: Math.log,
   abs: Math.abs,
+  cbrt: Math.cbrt,
+  exp: Math.exp,
+  log2: Math.log2,
   sin: Math.sin,
   cos: Math.cos,
   tan: Math.tan,
@@ -20,7 +24,7 @@ const functions = {
 
 function tokenize(source: string): Token[] {
   const tokens: Token[] = []
-  const lexeme = /\s+|(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:e[+-]?\d+)?|[a-z]+|[+*/^()-]/iy
+  const lexeme = /\s+|(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:e[+-]?\d+)?|log2(?![a-z0-9])|[a-z]+|[+*/^()!%-]/iy
   for (let offset = 0; offset < source.length;) {
     lexeme.lastIndex = offset
     const match = lexeme.exec(source)
@@ -42,11 +46,31 @@ function tokenize(source: string): Token[] {
   return tokens
 }
 
-export function parsePlotExpression(source: string): PlotExpression {
+interface CalculatorOptions {
+  readonly angleUnit: AngleUnit
+  readonly answer?: number
+}
+
+function calculatorValue(value: number): number {
+  if (Number.isNaN(value)) throw new Error('Domínio inválido.')
+  if (!Number.isFinite(value)) throw new Error('Resultado fora do intervalo.')
+  return value
+}
+
+function factorial(value: number): number {
+  if (value < 0 || !Number.isInteger(value)) throw new Error('Domínio inválido.')
+  if (value > 170) throw new Error('Resultado fora do intervalo.')
+  let product = 1
+  for (let factor = 2; factor <= value; factor++) product *= factor
+  return product
+}
+
+function parseExpression(source: string, calculator?: CalculatorOptions): PlotExpression {
   if (!source.trim()) throw new Error('Digite uma expressão.')
   if (source.length > MAX_PLOT_EXPRESSION_LENGTH) throw new Error('A expressão é longa demais.')
   const tokens = tokenize(source)
   let index = 0
+  const accept = calculator ? calculatorValue : (value: number) => value
 
   function match(kind: Token['kind']): boolean {
     if (tokens[index].kind !== kind) return false
@@ -69,27 +93,54 @@ export function parsePlotExpression(source: string): PlotExpression {
     }
     if (token.kind !== 'name') throw new Error('Use um número, x, uma função ou uma expressão entre parênteses.')
     index++
-    if (token.text === 'x') return (x) => x
+    if (token.text === 'x' && !calculator) return (x) => x
+    if (token.text === 'ans' && calculator?.answer !== undefined) return () => calculator.answer!
     if (token.text === 'pi') return () => Math.PI
     if (token.text === 'e') return () => Math.E
     if (!Object.hasOwn(functions, token.text)) throw new Error(`Nome desconhecido: «${token.text}».`)
     if (!match('(')) throw new Error(`Use parênteses depois de ${token.text}.`)
     const argument = group()
     const evaluate = functions[token.text as keyof typeof functions]
-    if (token.text !== 'tan') return (x, branches) => evaluate(argument(x, branches))
+    if (token.text === 'sin' || token.text === 'cos' || token.text === 'tan') {
+      const angleFactor = calculator?.angleUnit === 'degrees' ? Math.PI / 180 : 1
+      return (x, branches) => {
+        const angle = argument(x, branches) * angleFactor
+        if (token.text === 'tan') {
+          // Each interval between consecutive tangent poles is a separate branch.
+          branches?.push(Math.floor((angle + Math.PI / 2) / Math.PI))
+          if (Math.abs(Math.cos(angle)) <= Number.EPSILON * 4) return accept(NaN)
+        }
+        return accept(evaluate(angle))
+      }
+    }
     return (x, branches) => {
-      const angle = argument(x, branches)
-      // Each interval between consecutive tangent poles is a separate branch.
-      branches?.push(Math.floor((angle + Math.PI / 2) / Math.PI))
-      return Math.abs(Math.cos(angle)) <= Number.EPSILON * 4 ? NaN : Math.tan(angle)
+      const input = argument(x, branches)
+      if (calculator && input <= 0 && (token.text === 'log' || token.text === 'ln' || token.text === 'log2')) {
+        throw new Error('Domínio inválido.')
+      }
+      return accept(evaluate(input))
     }
   }
 
+  function postfix(): PlotExpression {
+    let result = primary()
+    while (calculator && match('!')) {
+      const operand = result
+      result = (x, branches) => factorial(operand(x, branches))
+    }
+    return result
+  }
+
   function power(): PlotExpression {
-    const base = primary()
+    const base = postfix()
     if (!match('^')) return base
     const exponent = unary()
-    return (x, branches) => base(x, branches) ** exponent(x, branches)
+    return (x, branches) => {
+      const value = base(x, branches)
+      const exp = exponent(x, branches)
+      if (calculator && value === 0 && exp < 0) throw new Error('Divisão por zero.')
+      return accept(value ** exp)
+    }
   }
 
   function unary(): PlotExpression {
@@ -102,19 +153,27 @@ export function parsePlotExpression(source: string): PlotExpression {
   function multiplication(): PlotExpression {
     let result = unary()
     for (;;) {
-      const operator = tokens[index].kind
+      const token = tokens[index]
+      const operator = token.kind
       const divide = operator === '/'
-      if (operator === '*' || divide) index++
+      const modulus = calculator && (operator === '%' || (token.kind === 'name' && token.text === 'mod'))
+      if (operator === '*' || divide || modulus) index++
       else if (operator !== '(' && operator !== 'name') return result
       const left = result
       const right = unary()
-      result = divide ? (x, branches) => {
+      result = (x, branches) => {
         const numerator = left(x, branches)
         const denominator = right(x, branches)
-        // Opposite signs of a continuous denominator imply a pole or a hole.
-        branches?.push(Math.sign(denominator))
-        return numerator / denominator
-      } : (x, branches) => left(x, branches) * right(x, branches)
+        if (!divide && !modulus) return accept(numerator * denominator)
+        if (calculator && denominator === 0) throw new Error('Divisão por zero.')
+        if (divide) {
+          // Opposite signs of a continuous denominator imply a pole or a hole.
+          branches?.push(Math.sign(denominator))
+          return accept(numerator / denominator)
+        }
+        const remainder = numerator % denominator
+        return remainder !== 0 && Math.sign(remainder) !== Math.sign(denominator) ? remainder + denominator : remainder
+      }
     }
   }
 
@@ -126,15 +185,27 @@ export function parsePlotExpression(source: string): PlotExpression {
       index++
       const left = result
       const right = multiplication()
-      result = operator === '+' ? (x, branches) => left(x, branches) + right(x, branches)
-        : (x, branches) => left(x, branches) - right(x, branches)
+      result = operator === '+' ? (x, branches) => accept(left(x, branches) + right(x, branches))
+        : (x, branches) => accept(left(x, branches) - right(x, branches))
     }
   }
 
   const evaluate = addition()
   if (tokens[index].kind !== 'end') throw new Error('Confira os operadores e parênteses da expressão.')
+  return evaluate
+}
+
+export function parsePlotExpression(source: string): PlotExpression {
+  const evaluate = parseExpression(source)
   return (x, branches) => {
     const value = evaluate(x, branches)
     return Number.isFinite(value) ? value : NaN
   }
+}
+
+export function evaluateCalculatorExpression(source: string, options: CalculatorOptions): number {
+  const normalized = source.replace(/π/g, 'pi').replace(/[−×÷]/g, (operator) =>
+    operator === '−' ? '-' : operator === '×' ? '*' : '/')
+  if (/\dE(?![+-]?\d)/.test(normalized)) throw new Error('Informe o expoente.')
+  return calculatorValue(parseExpression(normalized, options)(NaN))
 }

@@ -22,10 +22,14 @@ import { backgrounds, compassTools, initialFavorites, shapeTools, tools, Tools }
 import { TextEditor } from './ui/text-editor'
 import { EquationEditor } from './ui/equation-editor'
 import { PlotEditor } from './ui/plot-editor'
+import { QuickGraph } from './ui/quick-graph'
+import { Calculator } from './ui/calculator'
+import { Bhaskara } from './ui/bhaskara'
 import { ShortcutsPanel } from './ui/shortcuts-panel'
 import { findShortcut, shortcutAria, shortcutLabel } from './shortcuts'
-import { DEFAULT_PLOT_SETTINGS } from './plot/geometry'
+import { DEFAULT_PLOT_SETTINGS, getPlotGeometry, MAX_PLOT_FUNCTIONS } from './plot/geometry'
 import { alignPlotAxes } from './plot/object'
+import { nextPlotColor, PLOT_NOT_VISIBLE } from './plot/quick-graph'
 import { instrumentDimensions, type InstrumentKind } from './instruments/geometry'
 import { textBoxDimensions } from './ui/text'
 import type { Background, Dock } from './ui/tools'
@@ -64,6 +68,10 @@ interface PlotDraft {
   initial: PlotObject['props']
   transform: Affine
   object?: PlotObject
+}
+
+interface QuickGraphDraft {
+  target?: PlotObject
 }
 
 type PointerEffect = 'laser' | 'spotlight' | null
@@ -123,6 +131,8 @@ function Board() {
   const textDraftRef = useRef<TextDraft | null>(null)
   const equationDraftRef = useRef<EquationDraft | null>(null)
   const plotDraftRef = useRef<PlotDraft | null>(null)
+  const quickGraphRef = useRef<QuickGraphDraft | null>(null)
+  const bhaskaraSession = useRef<symbol | null>(null)
   const shortcutsOpenRef = useRef(false)
   const presentingRef = useRef(false)
   const pointerEffectRef = useRef<PointerEffect>(null)
@@ -134,6 +144,9 @@ function Board() {
   const [textDraft, setTextDraft] = useState<TextDraft | null>(null)
   const [equationDraft, setEquationDraft] = useState<EquationDraft | null>(null)
   const [plotDraft, setPlotDraft] = useState<PlotDraft | null>(null)
+  const [quickGraph, setQuickGraph] = useState<QuickGraphDraft | null>(null)
+  const [calculatorOpen, setCalculatorOpen] = useState(false)
+  const [bhaskaraOpen, setBhaskaraOpen] = useState(false)
   const [compassStep, setCompassStep] = useState<'radius' | 'sweep'>('radius')
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [presenting, setPresenting] = useState(false)
@@ -155,6 +168,11 @@ function Board() {
   function showShortcuts(open: boolean) {
     shortcutsOpenRef.current = open
     setShortcutsOpen(open)
+  }
+
+  function showBhaskara(open: boolean) {
+    bhaskaraSession.current = open ? bhaskaraSession.current ?? Symbol() : null
+    setBhaskaraOpen(open)
   }
 
   function openTextEditor(request: { point: Point; screen: Point; object?: TextObject; parentId?: string }) {
@@ -214,11 +232,7 @@ function Board() {
     applyChanges([{ before, after }])
   }
 
-  function openPlotEditor(object?: PlotObject) {
-    const board = controller.current
-    if (!board || !documentRef.current || fileOperation.current ||
-      textDraftRef.current || equationDraftRef.current || plotDraftRef.current) return
-
+  function visiblePlotDraft(board: BoardController): PlotDraft | undefined {
     const viewport = board.getViewport()
     const camera = board.getCamera()
     const width = Math.min(540, viewport.width * 0.82)
@@ -226,14 +240,22 @@ function Board() {
     if (width <= 0 || height <= 0) return
     const { x, y } = screenToWorld({ x: (viewport.width - width) / 2, y: (viewport.height - height) / 2 }, camera, viewport)
     const units = 1 / camera.zoom
-    const draft: PlotDraft = {
-      object,
-      initial: object?.props ?? {
+    return {
+      initial: {
         width, height, color: board.getStyle().color, size: 2,
         settings: DEFAULT_PLOT_SETTINGS, functions: [],
       },
-      transform: object?.transform ?? [units, 0, 0, units, x, y],
+      transform: [units, 0, 0, units, x, y],
     }
+  }
+
+  function openPlotEditor(object?: PlotObject) {
+    const board = controller.current
+    if (!board || !documentRef.current || fileOperation.current ||
+      textDraftRef.current || equationDraftRef.current || plotDraftRef.current || quickGraphRef.current) return
+
+    const draft = object ? { object, initial: object.props, transform: object.transform } : visiblePlotDraft(board)
+    if (!draft) return
     updatePointerEffect(null)
     plotDraftRef.current = draft
     setPlotDraft(draft)
@@ -246,9 +268,14 @@ function Board() {
 
   function commitPlot(props: PlotObject['props']) {
     const draft = plotDraftRef.current
-    const scene = sceneRef.current
-    if (!draft || !scene) return
+    if (!draft) return
     closePlotEditor()
+    savePlot(draft, props)
+  }
+
+  function savePlot(draft: PlotDraft, props: PlotObject['props']) {
+    const scene = sceneRef.current
+    if (!scene) return
     const before = draft.object
     if (before && (scene.get(before.id) !== before || JSON.stringify(before.props) === JSON.stringify(props))) return
     const after: PlotObject = {
@@ -261,6 +288,87 @@ function Board() {
       controller.current?.clearSelection()
       chooseTool('select')
     }
+  }
+
+  function openQuickGraph() {
+    const board = controller.current
+    if (!board || !documentRef.current || fileOperation.current ||
+      textDraftRef.current || equationDraftRef.current || plotDraftRef.current || quickGraphRef.current) return
+    const target = board.getSelection().find((object): object is PlotObject => object.type === 'plot')
+    const draft = { target }
+    quickGraphRef.current = draft
+    setQuickGraph(draft)
+  }
+
+  function closeQuickGraph() {
+    quickGraphRef.current = null
+    setQuickGraph(null)
+  }
+
+  function submitQuickGraph(expression: string): string | undefined {
+    const board = controller.current
+    const request = quickGraphRef.current
+    if (!board || !request || !documentRef.current || fileOperation.current) return 'Aguarde a lousa ficar disponível.'
+    const { target } = request
+    if (target && sceneRef.current?.get(target.id) !== target) return 'Selecione o plano novamente.'
+    const draft = target ? { object: target, initial: target.props, transform: target.transform } : visiblePlotDraft(board)
+    if (!draft) return 'A área visível da lousa está indisponível.'
+    const { functions, settings, width, height } = draft.initial
+    if (functions.length >= MAX_PLOT_FUNCTIONS) return `O plano aceita até ${MAX_PLOT_FUNCTIONS} funções.`
+    const fn = { expression, color: nextPlotColor(functions) }
+    const paths = getPlotGeometry(settings, width, height, [fn]).curves[0]?.paths
+    try {
+      savePlot(draft, { ...draft.initial, functions: [...functions, fn] })
+    } catch {
+      return 'Não foi possível inserir a função. Tente de novo.'
+    }
+    closeQuickGraph()
+    if (!paths?.length) setMessage(PLOT_NOT_VISIBLE)
+  }
+
+  async function insertBhaskara(steps: readonly string[]) {
+    const board = controller.current
+    const scene = sceneRef.current
+    const session = bhaskaraSession.current
+    if (!board || !scene || !session || !documentRef.current || fileOperation.current) {
+      throw new Error('Aguarde a lousa ficar disponível.')
+    }
+
+    const fontSize = 26
+    const color = board.getStyle().color
+    const { renderEquation } = await import('./equations/render')
+    const vectors = await Promise.all(steps.map((latex) => renderEquation(latex, fontSize)))
+    if (bhaskaraSession.current !== session) return
+    if (!vectors.length || controller.current !== board || fileOperation.current) {
+      throw new Error('Aguarde a lousa ficar disponível.')
+    }
+
+    const viewport = board.getViewport()
+    const camera = board.getCamera()
+    const gap = 11
+    const width = Math.max(...vectors.map((vector) => vector.width))
+    const height = vectors.reduce((total, vector) => total + vector.height, (vectors.length - 1) * gap)
+    const fit = Math.min(1, viewport.width * 0.86 / width, viewport.height * 0.84 / height)
+    if (!(fit > 0)) throw new Error('A área visível da lousa está indisponível.')
+    const scale = fit / camera.zoom
+    const left = (viewport.width - width * fit) / 2
+    let top = (viewport.height - height * fit) / 2
+    const zIndex = scene.nextZIndex()
+    const changes = vectors.map((vector, index): BoardChange => {
+      const { x, y } = screenToWorld({ x: left, y: top }, camera, viewport)
+      const after: EquationObject = {
+        id: crypto.randomUUID(), type: 'equation', locked: false, zIndex: zIndex + index,
+        transform: [scale, 0, 0, scale, x, y],
+        props: { latex: steps[index], color, fontSize, ...vector },
+      }
+      top += (vector.height + gap) * fit
+      return { after }
+    })
+    applyChanges(changes)
+    showBhaskara(false)
+    controller.current?.clearSelection()
+    chooseTool('select')
+    setMessage('Resolução inserida na lousa.')
   }
 
   function chooseTool(next: BoardTool) {
@@ -291,8 +399,8 @@ function Board() {
     liveCanvas.current?.focus({ preventScroll: true })
   }
 
-  function setPresentation(enabled: boolean) {
-    if (enabled && (textDraftRef.current || equationDraftRef.current || plotDraftRef.current)) {
+  function setPresentation(enabled: boolean, focusBoard = true) {
+    if (enabled && (textDraftRef.current || equationDraftRef.current || plotDraftRef.current || quickGraphRef.current)) {
       setMessage('Confirme ou cancele a edição antes de apresentar.')
       return
     }
@@ -301,7 +409,7 @@ function Board() {
     setShowPresentationBar(false)
     controller.current?.setPresentation(enabled)
     if (!enabled) updatePointerEffect(null)
-    liveCanvas.current?.focus({ preventScroll: true })
+    if (focusBoard) liveCanvas.current?.focus({ preventScroll: true })
   }
 
   function updatePointerEffect(next: PointerEffect) {
@@ -648,11 +756,13 @@ function Board() {
 
     function handleShortcut(event: KeyboardEvent) {
       const target = event.target
-      if (event.defaultPrevented || shortcutsOpenRef.current || plotDraftRef.current ||
-        isTextEntry(target) || target instanceof HTMLElement && target.matches('select')) return
+      if (event.defaultPrevented || shortcutsOpenRef.current || plotDraftRef.current || quickGraphRef.current) return
 
       const action = findShortcut(event, 'board')
       if (!action) return
+      const calculatorPresentation = action === 'presentation' && target instanceof HTMLElement &&
+        Boolean(target.closest('.calculator-panel'))
+      if ((isTextEntry(target) && !calculatorPresentation) || target instanceof HTMLElement && target.matches('select')) return
       const toolShortcut = [...tools, ...shapeTools, ...compassTools].find(({ id }) => action === `tool-${id}`)
       if (toolShortcut) {
         chooseTool(toolShortcut.id)
@@ -715,7 +825,7 @@ function Board() {
           moveToFrame()
           break
         case 'png': exportBoard('png'); break
-        case 'presentation': setPresentation(!presentingRef.current); break
+        case 'presentation': setPresentation(!presentingRef.current, !calculatorPresentation); break
         case 'laser': togglePointerEffect('laser'); break
         case 'spotlight': togglePointerEffect('spotlight'); break
         case 'pdf-frames': exportBoard('frames'); break
@@ -727,6 +837,9 @@ function Board() {
         case 'zoom-reset': board.setCamera({ x: 0, y: 0, zoom: 1 }); break
         case 'open-shortcuts': showShortcuts(true); break
         case 'new-plot': openPlotEditor(); break
+        case 'open-quick-graph': openQuickGraph(); break
+        case 'open-calculator': setCalculatorOpen(true); break
+        case 'open-bhaskara': showBhaskara(true); break
         case 'insert-ruler': insertInstrument('ruler'); break
         case 'insert-set-square-45': insertInstrument('set-square-45'); break
         case 'insert-set-square-30': insertInstrument('set-square-30'); break
@@ -738,7 +851,7 @@ function Board() {
     }
 
     function handlePaste(event: ClipboardEvent) {
-      if (fileOperation.current || !documentRef.current || shortcutsOpenRef.current || plotDraftRef.current) return
+      if (fileOperation.current || !documentRef.current || shortcutsOpenRef.current || plotDraftRef.current || quickGraphRef.current) return
       if (isTextEntry(event.target)) return
       const files = Array.from(event.clipboardData?.files ?? [])
       if (files.length) { event.preventDefault(); importAssets(files); return }
@@ -888,6 +1001,12 @@ function Board() {
           </select>
         </label>
         <button type="button" aria-keyshortcuts={shortcutAria('presentation')} title={`Apresentar (${shortcutLabel('presentation')})`} onClick={() => setPresentation(true)}>Apresentar</button>
+        <div className="math-actions" role="group" aria-label="Ferramentas de matemática">
+          <button type="button" aria-haspopup="dialog" aria-keyshortcuts={shortcutAria('open-calculator')}
+            title={`Calculadora (${shortcutLabel('open-calculator')})`} onClick={() => setCalculatorOpen(true)}>Calculadora</button>
+          <button type="button" aria-haspopup="dialog" aria-keyshortcuts={shortcutAria('open-bhaskara')}
+            title={`Bhaskara (${shortcutLabel('open-bhaskara')})`} onClick={() => showBhaskara(true)}>Bhaskara</button>
+        </div>
         <div className="stabilizer">
           <label htmlFor="stabilizer">Estabilizador</label>
           <input id="stabilizer" type="range" min="0" max="100" value={stabilizer}
@@ -907,6 +1026,7 @@ function Board() {
         <Tools dock={dock} tool={tool} favorite={favorite} favorites={favorites}
           onDock={(position) => useSettings.setState({ dock: position })}
           onTool={chooseTool} onPlot={() => openPlotEditor()} onInstrument={insertInstrument}
+          onQuickGraph={openQuickGraph}
           onFavorite={pickFavorite} onEditFavorite={editFavorite} />
         <section className="surface" aria-label="Área de desenho" aria-busy={!isReady || fileBusy}
           onDragOver={(event) => {
@@ -971,6 +1091,9 @@ function Board() {
       <ShortcutsPanel open={shortcutsOpen} onClose={() => showShortcuts(false)} />
       {plotDraft && <PlotEditor initial={plotDraft.initial} editing={Boolean(plotDraft.object)}
         onSave={commitPlot} onCancel={closePlotEditor} />}
+      {quickGraph && <QuickGraph selected={Boolean(quickGraph.target)} onSubmit={submitQuickGraph} onCancel={closeQuickGraph} />}
+      <Calculator open={calculatorOpen} onClose={() => setCalculatorOpen(false)} />
+      {bhaskaraOpen && <Bhaskara onClose={() => showBhaskara(false)} onInsert={insertBhaskara} />}
     </main>
   )
 }

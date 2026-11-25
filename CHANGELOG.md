@@ -1,5 +1,11 @@
 # Mudanças
 
+## Gráfico rápido, calculadora e Bhaskara
+
+- Clique em **Gráfico** ou pressione **Z**. Digite `y = x^2 - 4` ou `x^2 - 4` e confirme com **Enter**. Se houver um plano selecionado, a função entra nele. O editor avisa quando a escala precisa de ajuste para exibir a curva.
+- Abra a **Calculadora** com **F8**. Arraste o painel pelo cabeçalho, use o teclado ou os botões e copie o resultado. O painel fica visível na apresentação e guarda as 10 últimas operações da sessão.
+- Abra **Bhaskara** com **Shift+F8**. Digite a equação ou os coeficientes. Consulte o discriminante, os passos e as raízes exatas e decimais. **Inserir na lousa** cria uma equação vetorial editável por linha.
+
 ## C2 — Instrumentos de geometria
 
 - Abra **Instrumentos** para inserir régua, esquadro de 45°, esquadro de 30°–60° ou transferidor. Use **Seleção** para mover e arraste a alça superior para girar.
