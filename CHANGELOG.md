@@ -1,5 +1,11 @@
 # Mudanças
 
+## C3 — Reconhecimento de formas
+
+- Com a **Caneta**, desenhe e mantenha o botão esquerdo pressionado no fim do traço por cerca de **0,7 s**. Se o desenho encaixar, a prévia vira reta, círculo, elipse, retângulo, quadrado, triângulo ou seta.
+- Solte o botão para confirmar a forma vetorial. **Ctrl+Z** restaura a tinta original. Traços pequenos ou sem ajuste claro permanecem como tinta.
+- O botão **Reconhecer** e **Alt+8** ligam ou desligam o recurso. Ele começa ligado e lembra a escolha neste navegador.
+
 ## Nova lousa
 
 - Use **Arquivo → Nova lousa**, **Nova** na barra ou **Alt+0**. Uma lousa com conteúdo pede confirmação. Você pode exportar PDF, salvar o arquivo `.board` ou apagar direto.

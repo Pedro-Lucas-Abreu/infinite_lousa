@@ -14,6 +14,7 @@ import { CanvasRenderer, type BackgroundFrameMetrics, type BoardBackground, type
   type CanvasPointer, type GetPageRaster, type PointerEffect } from './renderer'
 
 import { appendVertex, dragShapePoints, isDrawableShape, snapAngle, type DragShape } from './shapes'
+import { recognizeShape, shapeHoldMs, shapeHoldRadius, type RecognizedShape } from './recognition'
 
 export type { BackgroundFrameMetrics } from './renderer'
 export type { BoardBackground, GetPageRaster, PointerEffect } from './renderer'
@@ -78,6 +79,15 @@ interface InkGesture {
   samples: InkSample[]
   parentId?: string
   snapEdge?: InstrumentEdge
+  recognition?: {
+    camera: Camera
+    viewport: Viewport
+    style: BrushStyle
+    points: Point[]
+    anchor?: Point
+    timer?: number
+    result?: RecognizedShape
+  }
 }
 
 interface PanGesture {
@@ -227,6 +237,7 @@ export class BoardController {
   private selection = new Set<string>()
   private clipboard: readonly BoardObject[] = []
   private documentChangePending = false
+  private shapeRecognition = true
   private preview: Stroke | undefined
   private backgroundDirty = true
   private liveDirty = true
@@ -265,6 +276,7 @@ export class BoardController {
 
   setTool(tool: BoardTool): void {
     if (this.tool === tool) return
+    this.discardRecognition()
     this.tool = tool
     this.polygon = undefined
     this.setCompassDraft(undefined)
@@ -305,6 +317,18 @@ export class BoardController {
   setStyle(style: BrushStyle): void {
     this.style = { ...style }
     if (this.presentation) this.refreshLive()
+  }
+
+  setShapeRecognition(enabled: boolean): void {
+    this.shapeRecognition = enabled
+    if (!enabled) this.discardRecognition()
+  }
+
+  private discardRecognition(): void {
+    if (this.gesture?.kind !== 'ink' || !this.gesture.recognition) return
+    window.clearTimeout(this.gesture.recognition.timer)
+    this.gesture.recognition = undefined
+    this.refreshLive()
   }
 
   getStyle(): BrushStyle {
@@ -468,6 +492,7 @@ export class BoardController {
   }
 
   destroy(): void {
+    if (this.gesture?.kind === 'ink') window.clearTimeout(this.gesture.recognition?.timer)
     this.listeners.abort()
     this.resizeObserver.disconnect()
     if (this.frameRequest !== undefined) cancelAnimationFrame(this.frameRequest)
@@ -558,7 +583,10 @@ export class BoardController {
           this.options.scene.add(stroke)
           this.options.onStrokeCommit?.(stroke)
         } else this.options.onChanges([{ after: stroke }])
-        committed.push(stroke)
+        if (gesture.recognition?.result) {
+          const recognized = this.recognizedObject(gesture, crypto.randomUUID())!
+          this.applyChanges([{ before: stroke }, { after: { ...recognized, zIndex: stroke.zIndex } }])
+        } else committed.push(stroke)
       }
     }
 
@@ -583,7 +611,8 @@ export class BoardController {
 
     if (this.liveDirty || backgroundMetrics?.instrumentsChanged) {
       this.liveDirty = false
-      this.renderer.drawLive(this.preview, this.camera, this.overlay())
+      const hasRecognizedShape = this.gesture?.kind === 'ink' && this.gesture.recognition?.result
+      this.renderer.drawLive(hasRecognizedShape ? undefined : this.preview, this.camera, this.overlay())
     }
     const timeStamp = performance.now()
 
@@ -612,6 +641,10 @@ export class BoardController {
     if (gesture?.kind === 'shape') {
       const preview = this.dragShape(gesture, 'shape-preview')
       if (preview) overlay.previewObjects = [preview]
+    }
+    if (gesture?.kind === 'ink') {
+      const recognized = this.recognizedObject(gesture, 'recognition-preview')
+      if (recognized) overlay.previewObjects = [recognized]
     }
     const compass = this.compassPreview(gesture)
     if (compass) overlay.previewObjects = compass
@@ -729,7 +762,11 @@ export class BoardController {
         .filter((object): object is InstrumentObject => object.type === 'instrument'), snapDistance)
       const parentId = this.pdfAt(snap ? snap.point : world)
       const gesture: InkGesture = { kind: 'ink', pointerId: event.pointerId, input, samples: [],
-        ...(parentId ? { parentId } : {}), ...(snap ? { snapEdge: snap.edge } : {}) }
+        ...(parentId ? { parentId } : {}), ...(snap ? { snapEdge: snap.edge } : {}),
+        ...(tool === 'pen' && !snap && this.shapeRecognition && event.pointerType === 'mouse' ? {
+          recognition: { camera: this.camera, viewport: this.renderer.viewport,
+            style: { color: this.style.color, size: this.style.size / this.camera.zoom }, points: [] },
+        } : {}) }
       this.enqueueSample(gesture, event, rect)
       this.gesture = gesture
     }
@@ -792,6 +829,26 @@ export class BoardController {
   private enqueueSample(gesture: InkGesture, event: PointerEvent, rect: DOMRect): void {
     const screen = eventPoint(event, rect)
     const viewport = this.renderer.viewport
+    const recognition = gesture.recognition
+    if (recognition) {
+      if (recognition.camera !== this.camera || recognition.viewport !== viewport) this.discardRecognition()
+      else {
+        recognition.points.push(screen)
+        if (!recognition.anchor || distance(recognition.anchor, screen) > shapeHoldRadius) {
+          recognition.anchor = screen
+          window.clearTimeout(recognition.timer)
+          if (recognition.result) {
+            recognition.result = undefined
+            this.refreshLive()
+          }
+          recognition.timer = window.setTimeout(() => {
+            if (this.gesture !== gesture || gesture.recognition !== recognition) return
+            recognition.result = recognizeShape(recognition.points)
+            this.refreshLive()
+          }, shapeHoldMs)
+        }
+      }
+    }
     const point: StrokePoint = gesture.snapEdge ? worldToScreen(
       projectToInstrumentEdge(screenToWorld(screen, this.camera, viewport), gesture.snapEdge), this.camera, viewport,
     ) : screen
@@ -871,6 +928,7 @@ export class BoardController {
   }
 
   private cancelGesture(): void {
+    if (this.gesture?.kind === 'ink') window.clearTimeout(this.gesture.recognition?.timer)
     if (this.gesture?.kind === 'transform' || this.gesture?.kind === 'erase' ||
       this.gesture?.kind === 'compass-radius' && this.gesture.guide) this.invalidateScene()
     this.gesture = undefined
@@ -1096,6 +1154,18 @@ export class BoardController {
     const points = dragShapePoints(gesture.shape, gesture.start, gesture.end, gesture.constrained)
     if (!isDrawableShape(gesture.shape, points, 1.5 / this.camera.zoom)) return undefined
     return this.createShape(id, gesture.shape, points, gesture.style, gesture.parentId)
+  }
+
+  private recognizedObject(gesture: InkGesture, id: string): ShapeObject | undefined {
+    const recognition = gesture.recognition
+    if (!recognition?.result) return
+    const { kind, points, angle } = recognition.result
+    const world = points.map((point) => screenToWorld(point, recognition.camera, recognition.viewport))
+    const shape = this.createShape(id, kind, world, recognition.style, gesture.parentId)
+    if (!angle) return shape
+    const cos = Math.cos(angle), sin = Math.sin(angle)
+    const rotation = this.around(midpoint(world[0], world[1]), [cos, sin, -sin, cos, 0, 0])
+    return { ...shape, transform: multiplyTransforms(rotation, shape.transform) }
   }
 
   private createShape(id: string, kind: ShapeKind, points: readonly Point[], style: BrushStyle, parentId?: string): ShapeObject {

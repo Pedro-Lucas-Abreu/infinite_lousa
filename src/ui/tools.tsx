@@ -53,12 +53,15 @@ type Props = {
   onTool: (tool: BoardTool) => void
   onPlot: () => void
   onQuickGraph: () => void
+  shapeRecognition: boolean
+  onToggleRecognition: () => void
   onInstrument: (kind: Exclude<InstrumentKind, 'compass'>) => void
   onFavorite: (index: number) => void
   onEditFavorite: (style: BrushStyle) => void
 }
 
-export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onPlot, onQuickGraph, onInstrument, onFavorite, onEditFavorite }: Props) {
+export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onPlot, onQuickGraph, shapeRecognition,
+  onToggleRecognition, onInstrument, onFavorite, onEditFavorite }: Props) {
   const [dragging, setDragging] = useState(false)
   const shape = shapeTools.find((entry) => entry.id === tool)
   const compass = compassTools.find((entry) => entry.id === tool)
@@ -126,6 +129,12 @@ export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onPlot,
           </button>
         </div>
       </details>
+      <button type="button" aria-label="Reconhecimento de formas" aria-pressed={shapeRecognition}
+        aria-keyshortcuts={shortcutAria('toggle-shape-recognition')}
+        title={`Reconhecimento de formas (${shortcutLabel('toggle-shape-recognition')})`}
+        onClick={onToggleRecognition}>
+        <span aria-hidden="true" data-ui-icon>◇</span><small>Reconhecer</small>
+      </button>
       <details className="tool-settings instruments-menu">
         <summary aria-label="Instrumentos de geometria" title="Instrumentos de geometria">
           {compass ? 'Compasso' : 'Instrumentos'}

@@ -47,6 +47,7 @@ interface BoardSettings {
   favorite: number
   favorites: readonly BrushStyle[]
   exportInstruments: boolean
+  shapeRecognition: boolean
 }
 
 interface TextDraft {
@@ -79,6 +80,13 @@ interface QuickGraphDraft {
 
 type PointerEffect = 'laser' | 'spotlight' | null
 
+const shapeRecognitionKey = 'lousa.shapeRecognition'
+
+function readShapeRecognition(): boolean {
+  try { return localStorage.getItem(shapeRecognitionKey) !== 'off' }
+  catch { return true }
+}
+
 const useSettings = create<BoardSettings>(() => ({
   tool: 'pen',
   stabilizer: 35,
@@ -88,7 +96,15 @@ const useSettings = create<BoardSettings>(() => ({
   favorite: 0,
   favorites: initialFavorites,
   exportInstruments: false,
+  shapeRecognition: readShapeRecognition(),
 }))
+
+function toggleShapeRecognition() {
+  const shapeRecognition = !useSettings.getState().shapeRecognition
+  useSettings.setState({ shapeRecognition })
+  try { localStorage.setItem(shapeRecognitionKey, shapeRecognition ? 'on' : 'off') }
+  catch { /* Preferences remain usable for this session. */ }
+}
 
 function pickFavorite(index: number) {
   useSettings.setState(({ tool }) => ({ favorite: index, tool: tool === 'highlight' ? tool : 'pen' }))
@@ -169,7 +185,7 @@ function Board() {
   const [history, setHistory] = useState({ undo: false, redo: false })
   const [pwaState, setPwaState] = useState<PwaState>({ offline: 'loading', canInstall: false, updateAvailable: false })
   const [zoom, setZoom] = useState(1)
-  const { tool, stabilizer, zoomRequiresCtrl, dock, background, favorite, favorites, exportInstruments } = useSettings()
+  const { tool, stabilizer, zoomRequiresCtrl, dock, background, favorite, favorites, exportInstruments, shapeRecognition } = useSettings()
   const compassInstructions = tool === 'compass' ? 'Arraste do centro até a borda para desenhar o círculo.'
     : tool === 'compass-arc' ? (compassStep === 'radius'
       ? 'Arraste do centro até o ponto inicial do arco.'
@@ -881,12 +897,13 @@ function Board() {
     })
 
     controller.current = board
-    const applySettings = ({ tool, stabilizer, zoomRequiresCtrl, background, favorite, favorites }: BoardSettings) => {
+    const applySettings = ({ tool, stabilizer, zoomRequiresCtrl, background, favorite, favorites, shapeRecognition }: BoardSettings) => {
       board.setTool(tool)
       board.setStabilizer(stabilizer)
       board.setZoomRequiresCtrl(zoomRequiresCtrl)
       board.setStyle(favorites[favorite])
       board.setBackground(background)
+      board.setShapeRecognition(shapeRecognition)
     }
     applySettings(useSettings.getState())
     const unsubscribeSettings = useSettings.subscribe(applySettings)
@@ -984,6 +1001,7 @@ function Board() {
         case 'insert-set-square-30': insertInstrument('set-square-30'); break
         case 'insert-protractor': insertInstrument('protractor'); break
         case 'toggle-pdf-instruments': useSettings.setState(({ exportInstruments }) => ({ exportInstruments: !exportInstruments })); break
+        case 'toggle-shape-recognition': toggleShapeRecognition(); break
         default: return
       }
       event.preventDefault()
@@ -1173,6 +1191,7 @@ function Board() {
           onDock={(position) => useSettings.setState({ dock: position })}
           onTool={chooseTool} onPlot={() => openPlotEditor()} onInstrument={insertInstrument}
           onQuickGraph={openQuickGraph}
+          shapeRecognition={shapeRecognition} onToggleRecognition={toggleShapeRecognition}
           onFavorite={pickFavorite} onEditFavorite={editFavorite} />
         <section className="surface" aria-label="Área de desenho" aria-busy={!isReady || fileBusy}
           onDragOver={(event) => {

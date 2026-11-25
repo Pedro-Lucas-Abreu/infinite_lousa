@@ -34,6 +34,11 @@
 - The new board flow atomically replaces the IndexedDB objects, history and assets before clearing the scene. Its undo checkpoint retains the old document and file handle in memory for 30 seconds or until the first edit. A restored checkpoint is saved through the same transaction.
 - A native file write must close successfully before backup-and-clear proceeds. The browser download fallback cannot report completion. It keeps the current board and asks the user to verify the file before discarding. Native file associations are session state.
 
+## C3 Shape recognition
+
+- Recognition uses the pen's raw mouse samples in CSS pixels. A 700 ms hold within 3 px triggers a preview when the trace fits a supported shape. Short or ambiguous traces remain ink. Instrument snapping and highlighting keep their existing behavior.
+- Releasing the mouse records the original ink and then replaces it with a standard shape of the same color, thickness and stacking order. One undo restores the ink and a second undo removes it. The toggle is stored separately as a browser preference.
+
 ## Milestone 1 decisions
 
 - `src/core` owns scene data, coordinates, spatial queries, and stroke geometry. Keep the model serializable. Canvas contexts, `Path2D` objects and index entries are derived state.

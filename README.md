@@ -33,6 +33,7 @@ Pressione **?** ou abra **Arquivo → Atalhos** para consultar a lista completa,
 | Inserir instrumentos | Menu **Instrumentos** ou `Alt+1` régua, `Alt+2` esquadro de 45°, `Alt+3` esquadro de 30°–60°, `Alt+4` transferidor |
 | Desenhar com o compasso | `Alt+5` para círculo e `Alt+6` para arco. Arraste para definir o raio. Para arco, arraste de novo para definir a abertura |
 | Restringir formas | Segure `Shift` para ângulos de 45° em linhas, setas ou segmentos do polígono e para desenhar quadrados ou círculos |
+| Reconhecer formas com a caneta | Segure o botão esquerdo parado por **0,7 s** no fim de um traço. Use **Reconhecer** ou `Alt+8` para alternar e `Ctrl+Z` para recuperar a tinta |
 | Suavizar o traço | Controle Estabilizador de 0 a 100 |
 | Mover a lousa | O botão direito arrasta a lousa. Também funcionam Espaço ou Ctrl + arrastar e a ferramenta Mão (`M`) |
 | Dar zoom | Roda do mouse, `+` e `−` ou controles na barra |
