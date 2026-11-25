@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { it } from 'node:test'
 import type { Affine, Point } from '../core/types'
-import { compassAngle, compassTransform, sweepCompass } from './gesture'
+import { compassAngle, compassRadius, compassTransform, measureProtractor, sweepCompass, worldProtractorCenter } from './gesture'
+import { instrumentDimensions } from './geometry'
 
 function project([a, b, c, d, e, f]: Affine, { x, y }: Point): Point {
   return { x: a * x + c * y + e, y: b * x + d * y + f }
@@ -34,4 +35,34 @@ it('tracks the direction across the angle wrap and limits arcs to one revolution
   near(counterclockwise.sweep, 6 - 2 * Math.PI)
   near(sweepCompass({ angle: -1, sweep: 6 }, 1).sweep, 2 * Math.PI)
   near(sweepCompass({ angle: 1, sweep: -6 }, -1).sweep, -2 * Math.PI)
+})
+
+it('measures and snaps degrees relative to a rotated and scaled protractor, with an option for fractional angles', () => {
+  const heading = 0.64
+  const magnification = 2.3
+  const a = Math.cos(heading) * magnification, b = Math.sin(heading) * magnification
+  const transform: Affine = [a, b, -b, a, 30, 63]
+  const instrument = { props: { kind: 'protractor' as const, ...instrumentDimensions('protractor') }, transform }
+  const center = worldProtractorCenter(instrument)
+  const targetAt = (degrees: number) => ({
+    x: center.x + 80 * Math.cos(heading - degrees * Math.PI / 180),
+    y: center.y + 80 * Math.sin(heading - degrees * Math.PI / 180),
+  })
+  for (const angle of [0, 31.7, 88.25, 141.8, 180]) {
+    const snapped = measureProtractor(instrument, targetAt(angle), true)
+    assert.equal(snapped.degrees, Math.round(angle))
+    near(snapped.end.x, targetAt(Math.round(angle)).x)
+    near(snapped.end.y, targetAt(Math.round(angle)).y)
+    near(measureProtractor(instrument, targetAt(angle), false).degrees, angle)
+  }
+  assert.equal(measureProtractor(instrument, targetAt(-40), true).degrees, 0)
+  assert.equal(measureProtractor(instrument, targetAt(207), true).degrees, 180)
+})
+
+it('uses the previous world radius on a second locked gesture and learns a new radius when unlocked', () => {
+  const first = compassRadius(58.5, 4)
+  assert.equal(first, 58.5)
+  assert.equal(compassRadius(104, 4, first), 58.5)
+  assert.equal(compassRadius(104, 4), 104)
+  assert.equal(compassRadius(0, 4, first), undefined)
 })

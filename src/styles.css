@@ -180,6 +180,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-vi
 }
 .tool-settings-body label { display: flex; font-size: .82rem; gap: 8px; align-items: center; justify-content: space-between; }
 .tool-settings-body input { width: 56px; }
+.tool-settings-body .tool-switch { justify-content: start; white-space: nowrap; }
+.tool-settings-body .tool-switch input { width: 1rem; accent-color: var(--accent); }
 .shape-choices button { flex-direction: row; justify-content: flex-start; gap: 8px; }
 .shape-choices small { margin-left: auto; color: var(--muted); }
 .instruments-menu .tool-settings-body { min-width: 228px; }

@@ -1,5 +1,11 @@
 # Mudanças
 
+## C2b — Instrumentos de apoio
+
+- **Instrumentos sólidos**, em **Ajustes** ou com **Alt+9**, faz a Caneta e o Marca-texto contornarem a régua, os esquadros e o transferidor. Segure **Alt** para desenhar através deles. O reconhecimento de formas continua disponível na borda.
+- Com a **Caneta**, arraste do centro do transferidor para desenhar a semirreta. A leitura aparece junto ao cursor. Segure **Shift** para usar graus fracionários.
+- O compasso mostra o raio em unidades da lousa. **Instrumentos → Travar raio** ou **Alt+R** reaproveita o último raio confirmado nos próximos gestos.
+
 ## C3 — Mais formas e ajustes de reconhecimento
 
 - A pausa de **0,7 s** também reconhece losangos, trapézios, pentágonos e hexágonos. Pentágonos e hexágonos são regularizados quando todos os cantos se ajustam.

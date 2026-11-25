@@ -55,13 +55,18 @@ type Props = {
   onQuickGraph: () => void
   shapeRecognition: boolean
   onToggleRecognition: () => void
+  solidInstruments: boolean
+  lockCompassRadius: boolean
+  onSolidInstruments: (enabled: boolean) => void
+  onLockCompassRadius: (enabled: boolean) => void
   onInstrument: (kind: Exclude<InstrumentKind, 'compass'>) => void
   onFavorite: (index: number) => void
   onEditFavorite: (style: BrushStyle) => void
 }
 
 export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onPlot, onQuickGraph, shapeRecognition,
-  onToggleRecognition, onInstrument, onFavorite, onEditFavorite }: Props) {
+  onToggleRecognition, solidInstruments, lockCompassRadius, onSolidInstruments, onLockCompassRadius,
+  onInstrument, onFavorite, onEditFavorite }: Props) {
   const [dragging, setDragging] = useState(false)
   const shape = shapeTools.find((entry) => entry.id === tool)
   const compass = compassTools.find((entry) => entry.id === tool)
@@ -158,6 +163,10 @@ export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onPlot,
             }}>
             <span aria-hidden="true" data-ui-icon>{icon}</span>{label}<small>{key}</small>
           </button>)}
+          <label className="tool-switch" title={shortcutLabel('lock-compass-radius')}>
+            <input type="checkbox" checked={lockCompassRadius} aria-keyshortcuts={shortcutAria('lock-compass-radius')}
+              onChange={(event) => onLockCompassRadius(event.target.checked)} />Travar raio
+          </label>
         </div>
       </details>
       <div className="favorites" role="group" aria-label="Favoritos de cor e espessura">
@@ -183,6 +192,10 @@ export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onPlot,
           <label>Barra<select value={dock} onChange={(event) => onDock(event.target.value as Dock)}>
             {(Object.keys(docks) as Dock[]).map((position) => <option key={position} value={position}>{docks[position]}</option>)}
           </select></label>
+          <label className="tool-switch" title={shortcutLabel('toggle-solid-instruments')}>
+            <input type="checkbox" checked={solidInstruments} aria-keyshortcuts={shortcutAria('toggle-solid-instruments')}
+              onChange={(event) => onSolidInstruments(event.target.checked)} />Instrumentos sólidos
+          </label>
         </div>
       </details>
     </aside>

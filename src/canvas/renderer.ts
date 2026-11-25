@@ -24,6 +24,7 @@ export interface CanvasOverlay {
   eraser?: { point: Point; radius: number }
   polygon?: { points: readonly Point[]; hover?: Point; color: string; size: number; parentId?: string }
   pointer?: CanvasPointer
+  measurement?: { point: Point; text: string }
 }
 
 export interface BackgroundFrameMetrics {
@@ -289,6 +290,21 @@ export class CanvasRenderer {
     }
     if (overlay.polygon) this.drawPolygonDraft(overlay.polygon, camera)
     if (overlay.pointer) this.drawPointer(overlay.pointer)
+    if (overlay.measurement) {
+      const { point, text } = overlay.measurement
+      context.save()
+      context.font = '600 13px system-ui, sans-serif'
+      context.textBaseline = 'middle'
+      context.textAlign = 'left'
+      const width = context.measureText(text).width + 16
+      const x = Math.max(4, Math.min(point.x + 14, this.viewport.width - width - 4))
+      const y = Math.max(4, Math.min(point.y + 14, this.viewport.height - 28))
+      context.fillStyle = '#192038'
+      context.fillRect(x, y, width, 24)
+      context.fillStyle = '#fff'
+      context.fillText(text, x + 8, y + 12)
+      context.restore()
+    }
   }
 
   private drawPointer({ point: { x, y }, kind, color, size, parentId }: CanvasPointer): void {

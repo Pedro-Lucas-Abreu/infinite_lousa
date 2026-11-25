@@ -1,17 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { Affine, Point } from '../core/types'
+import type { Point } from '../core/types'
 import {
-  compassFeet, getInstrumentGeometry, instrumentDimensions, instrumentEdges, instrumentKinds, isInstrumentKind,
-  nearestInstrumentEdge, projectToInstrumentEdge, type InstrumentKind,
+  compassFeet, getInstrumentGeometry, instrumentDimensions, instrumentKinds, isInstrumentKind,
 } from './geometry'
 
 function near(actual: number, expected: number, tolerance = 1e-10) {
   assert.ok(Math.abs(actual - expected) < tolerance, 'Expected ' + actual + ' to be close to ' + expected)
-}
-
-function placement(kind: InstrumentKind, transform: Affine = [1, 0, 0, 1, 0, 0]) {
-  return { props: { kind, ...instrumentDimensions(kind) }, transform }
 }
 
 test('ruler marks millimeters and numbers ten centimeters at CSS physical scale', () => {
@@ -40,7 +35,7 @@ test('set squares have one right angle and the supplied acute angles', () => {
   }
 })
 
-test('protractor marks each degree from zero through 180 without snapping the pen', () => {
+test('protractor marks each degree from zero through 180', () => {
   const { width, height } = instrumentDimensions('protractor')
   const { labels, paths, edges } = getInstrumentGeometry('protractor', width, height)
   assert.deepEqual(labels.map(({ text }) => text), Array.from({ length: 13 }, (_, index) => index * 15 + '°'))
@@ -71,19 +66,4 @@ test('compass geometry includes both tips at the same height and recognizes vali
   near(tip.x - pivot.x, width * 2 / 3)
   assert.equal(tip.y, pivot.y)
   assert.deepEqual(edges, [])
-})
-
-test('snapping uses finite world segments after rotation, scaling and translation', () => {
-  const ruler = placement('ruler', [0, 2, -3, 0, 100, 25])
-  const edges = instrumentEdges(ruler)
-  const edge = edges[0]!
-  assert.deepEqual(edge.start, { x: 100, y: 25 })
-  near(edge.end.x, 100)
-  near(edge.end.y, 25 + ruler.props.width * 2)
-  assert.deepEqual(nearestInstrumentEdge({ x: 109, y: 128 }, [ruler], 12),
-    { edge, point: { x: 100, y: 128 } })
-  assert.equal(nearestInstrumentEdge({ x: 113, y: 128 }, [ruler], 12), undefined)
-  assert.deepEqual(projectToInstrumentEdge({ x: 103, y: -200 }, edge), edge.start)
-  assert.deepEqual(projectToInstrumentEdge({ x: 103, y: 5_000 }, edge), edge.end)
-  assert.equal(nearestInstrumentEdge({ x: 0, y: 175 }, [placement('protractor'), placement('compass')], 12), undefined)
 })

@@ -18,7 +18,7 @@ export interface KeyBinding {
 
 interface PointerBinding {
   gesture: 'pan' | 'zoom' | 'edit' | 'polygon' | 'dock' | 'drop' | 'paste' | 'pinch' | 'constrain' | 'select'
-  condition?: 'ctrl' | 'space' | 'hand' | 'shift'
+  condition?: 'ctrl' | 'space' | 'hand' | 'shift' | 'alt'
   button?: number
 }
 
@@ -168,6 +168,12 @@ export const shortcuts = [
     ['Arraste para definir o raio e de novo para abrir o arco']),
   board('toggle-pdf-instruments', 'PDF e quadros', 'Alternar inclusão dos instrumentos no PDF', { ...alt('7'), single: true }),
   board('toggle-shape-recognition', 'Ferramentas', 'Alternar reconhecimento de formas', { ...alt('8'), single: true }),
+  board('toggle-solid-instruments', 'Ferramentas', 'Alternar instrumentos sólidos', { ...alt('9'), single: true }),
+  board('lock-compass-radius', 'Ferramentas', 'Travar ou liberar o raio do compasso', { ...alt('r'), single: true }),
+  entry('ignore-solid-instruments', 'controller', 'Ferramentas', 'Ignorar o corpo dos instrumentos ao desenhar', [],
+    ['Segure Alt'], [{ gesture: 'constrain', condition: 'alt' }]),
+  entry('protractor-ray', 'controller', 'Ferramentas', 'Desenhar uma semirreta pelo transferidor com a caneta', [],
+    ['Arraste do centro do transferidor', 'Shift durante o arraste para medir sem encaixe']),
   entry('hold-to-recognize-shape', 'controller', 'Ferramentas', 'Reconhecer a forma do traço da caneta', [],
     ['Segure o botão esquerdo parado por 0,7 s']),
   board('escape', 'Lousa', 'Limpar seleção, cancelar quadro ou sair de modo temporário', plain('Escape')),
@@ -249,7 +255,7 @@ export function findShortcut(event: ShortcutEvent, scope: ShortcutScope, phase: 
 }
 
 export function shouldStartPan(button: number, ctrl: boolean, space: boolean, hand: boolean): boolean {
-  const held = { ctrl, space, hand, shift: false }
+  const held = { ctrl, space, hand, shift: false, alt: false }
   return byId.get('hold-pan')!.pointerBindings.some((binding) =>
     binding.button === button && (binding.condition === undefined || held[binding.condition]))
 }
@@ -262,6 +268,10 @@ export function shouldZoomWithWheel(requiresControl: boolean, event: Pick<WheelE
 
 export function pointerConstrained(event: Pick<PointerEvent, 'shiftKey'>): boolean {
   return byId.get('constrain-shape')!.pointerBindings.some((binding) => binding.condition === 'shift' && event.shiftKey)
+}
+
+export function ignoresSolidInstruments(event: Pick<PointerEvent, 'altKey'>): boolean {
+  return byId.get('ignore-solid-instruments')!.pointerBindings.some((binding) => binding.condition === 'alt' && event.altKey)
 }
 
 export function shouldExtendSelection(event: Pick<PointerEvent, 'button' | 'shiftKey'>): boolean {

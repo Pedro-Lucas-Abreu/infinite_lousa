@@ -48,6 +48,8 @@ interface BoardSettings {
   favorites: readonly BrushStyle[]
   exportInstruments: boolean
   shapeRecognition: boolean
+  solidInstruments: boolean
+  lockCompassRadius: boolean
 }
 
 interface TextDraft {
@@ -97,6 +99,8 @@ const useSettings = create<BoardSettings>(() => ({
   favorites: initialFavorites,
   exportInstruments: false,
   shapeRecognition: readShapeRecognition(),
+  solidInstruments: true,
+  lockCompassRadius: false,
 }))
 
 function toggleShapeRecognition() {
@@ -185,7 +189,8 @@ function Board() {
   const [history, setHistory] = useState({ undo: false, redo: false })
   const [pwaState, setPwaState] = useState<PwaState>({ offline: 'loading', canInstall: false, updateAvailable: false })
   const [zoom, setZoom] = useState(1)
-  const { tool, stabilizer, zoomRequiresCtrl, dock, background, favorite, favorites, exportInstruments, shapeRecognition } = useSettings()
+  const { tool, stabilizer, zoomRequiresCtrl, dock, background, favorite, favorites, exportInstruments, shapeRecognition,
+    solidInstruments, lockCompassRadius } = useSettings()
   const compassInstructions = tool === 'compass' ? 'Arraste do centro até a borda para desenhar o círculo.'
     : tool === 'compass-arc' ? (compassStep === 'radius'
       ? 'Arraste do centro até o ponto inicial do arco.'
@@ -897,13 +902,15 @@ function Board() {
     })
 
     controller.current = board
-    const applySettings = ({ tool, stabilizer, zoomRequiresCtrl, background, favorite, favorites, shapeRecognition }: BoardSettings) => {
+    const applySettings = ({ tool, stabilizer, zoomRequiresCtrl, background, favorite, favorites, shapeRecognition,
+      solidInstruments, lockCompassRadius }: BoardSettings) => {
       board.setTool(tool)
       board.setStabilizer(stabilizer)
       board.setZoomRequiresCtrl(zoomRequiresCtrl)
       board.setStyle(favorites[favorite])
       board.setBackground(background)
       board.setShapeRecognition(shapeRecognition)
+      board.setInstrumentOptions(solidInstruments, lockCompassRadius)
     }
     applySettings(useSettings.getState())
     const unsubscribeSettings = useSettings.subscribe(applySettings)
@@ -1002,6 +1009,8 @@ function Board() {
         case 'insert-protractor': insertInstrument('protractor'); break
         case 'toggle-pdf-instruments': useSettings.setState(({ exportInstruments }) => ({ exportInstruments: !exportInstruments })); break
         case 'toggle-shape-recognition': toggleShapeRecognition(); break
+        case 'toggle-solid-instruments': useSettings.setState(({ solidInstruments }) => ({ solidInstruments: !solidInstruments })); break
+        case 'lock-compass-radius': useSettings.setState(({ lockCompassRadius }) => ({ lockCompassRadius: !lockCompassRadius })); break
         default: return
       }
       event.preventDefault()
@@ -1192,6 +1201,9 @@ function Board() {
           onTool={chooseTool} onPlot={() => openPlotEditor()} onInstrument={insertInstrument}
           onQuickGraph={openQuickGraph}
           shapeRecognition={shapeRecognition} onToggleRecognition={toggleShapeRecognition}
+          solidInstruments={solidInstruments} lockCompassRadius={lockCompassRadius}
+          onSolidInstruments={(solidInstruments) => useSettings.setState({ solidInstruments })}
+          onLockCompassRadius={(lockCompassRadius) => useSettings.setState({ lockCompassRadius })}
           onFavorite={pickFavorite} onEditFavorite={editFavorite} />
         <section className="surface" aria-label="Área de desenho" aria-busy={!isReady || fileBusy}
           onDragOver={(event) => {

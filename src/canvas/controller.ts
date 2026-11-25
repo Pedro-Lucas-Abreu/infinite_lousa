@@ -1,12 +1,14 @@
 import { panBy, screenToWorld, worldToScreen, zoomAt } from '../core/camera'
 import { objectBounds, type Scene } from '../core/scene'
 import { shapeArcPoints } from '../core/shapes'
-import { StrokeInput } from '../core/stroke'
+import { StrokeInput, type StrokeRoute } from '../core/stroke'
 import type { Affine, BoardChange, BoardObject, Bounds, Camera, EquationObject, FrameObject, InstrumentObject, PlotObject,
   Point, ShapeKind, ShapeObject, Stroke, StrokePoint, TextObject, Viewport } from '../core/types'
-import { compassFeet, instrumentDimensions, nearestInstrumentEdge, projectToInstrumentEdge, type InstrumentEdge } from '../instruments/geometry'
-import { compassAngle, compassTransform, sweepCompass, type CompassSweep } from '../instruments/gesture'
-import { acceptsPointer, findShortcut, pointerButtons, pointerConstrained, secondaryButtonMask,
+import { compassFeet, instrumentDimensions } from '../instruments/geometry'
+import { compassAngle, compassRadius, compassTransform, measureProtractor, sweepCompass, worldProtractorCenter,
+  type CompassSweep } from '../instruments/gesture'
+import { projectSolidPoint, solidBoundary, traceAroundSolids, type SolidBoundary } from '../instruments/solids'
+import { acceptsPointer, findShortcut, ignoresSolidInstruments, pointerButtons, pointerConstrained, secondaryButtonMask,
   shouldExtendSelection, shouldStartPan, shouldZoomWithWheel } from '../shortcuts'
 import { boundsFromPoints, expandBounds, fittingFrame, hitInk, hitObject, multiplyTransforms, rectanglePoints,
   regionIntersects, selectionHandles } from './geometry'
@@ -70,6 +72,7 @@ interface InkSample {
   timeStamp: number
   camera: Camera
   viewport: Viewport
+  route?: StrokeRoute
 }
 
 interface InkGesture {
@@ -78,13 +81,14 @@ interface InkGesture {
   input: StrokeInput
   samples: InkSample[]
   parentId?: string
-  snapEdge?: InstrumentEdge
+  boundaries: readonly SolidBoundary[]
   recognition?: {
     camera: Camera
     viewport: Viewport
     style: BrushStyle
     points: Point[]
     anchor?: Point
+    end?: Point
     timer?: number
     result?: RecognizedShape
   }
@@ -166,6 +170,7 @@ interface CompassRadiusGesture extends CompassOrigin {
   pointerId: number
   arc: boolean
   end: Point
+  rememberedRadius?: number
 }
 
 interface CompassSweepGesture {
@@ -176,11 +181,22 @@ interface CompassSweepGesture {
 }
 
 type Gesture = InkGesture | PanGesture | EraseGesture | RegionGesture | TransformGesture | ShapeGesture | ClickGesture |
-  CompassRadiusGesture | CompassSweepGesture
+  CompassRadiusGesture | CompassSweepGesture | ProtractorGesture
+
+interface ProtractorGesture {
+  kind: 'protractor'
+  pointerId: number
+  instrument: InstrumentObject
+  style: BrushStyle
+  target: Point
+  snap: boolean
+  parentId?: string
+}
 
 const eraserPixels = 9
-const instrumentSnapPixels = 12
+const protractorCenterPixels = 12
 const compassMinRadiusPixels = 4
+const measurementFormat = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1, useGrouping: false })
 const translation = (dx: number, dy: number): Affine => [1, 0, 0, 1, dx, dy]
 
 function getParent(object: BoardObject): string | undefined {
@@ -238,6 +254,9 @@ export class BoardController {
   private clipboard: readonly BoardObject[] = []
   private documentChangePending = false
   private shapeRecognition = true
+  private solidInstruments = true
+  private lockCompassRadius = false
+  private lastCompassRadius?: number
   private preview: Stroke | undefined
   private backgroundDirty = true
   private liveDirty = true
@@ -280,7 +299,7 @@ export class BoardController {
     this.tool = tool
     this.polygon = undefined
     this.setCompassDraft(undefined)
-    if (this.gesture?.kind === 'compass-radius' || this.gesture?.kind === 'compass-sweep') {
+    if (this.gesture?.kind === 'compass-radius' || this.gesture?.kind === 'compass-sweep' || this.gesture?.kind === 'protractor') {
       this.releasePointers()
       this.cancelGesture()
     }
@@ -322,6 +341,11 @@ export class BoardController {
   setShapeRecognition(enabled: boolean): void {
     this.shapeRecognition = enabled
     if (!enabled) this.discardRecognition()
+  }
+
+  setInstrumentOptions(solid: boolean, lockRadius: boolean): void {
+    this.solidInstruments = solid
+    this.lockCompassRadius = lockRadius
   }
 
   private discardRecognition(): void {
@@ -648,6 +672,19 @@ export class BoardController {
     }
     const compass = this.compassPreview(gesture)
     if (compass) overlay.previewObjects = compass
+    const measuredRadius = gesture?.kind === 'compass-radius' ? this.measureCompass(gesture)?.radius
+      : gesture?.kind === 'compass-sweep' ? gesture.draft.radius : this.compassDraft?.radius
+    const screen = this.pointerScreenPoint()
+    if (screen && measuredRadius !== undefined) {
+      overlay.measurement = { point: screen, text: `Raio ${measurementFormat.format(measuredRadius)} u` }
+    }
+    if (gesture?.kind === 'protractor') {
+      const { center, end, degrees } = measureProtractor(gesture.instrument, gesture.target, gesture.snap)
+      if (distance(center, end) > 0) {
+        overlay.previewObjects = [this.createShape('protractor-preview', 'line', [center, end], gesture.style, gesture.parentId)]
+      }
+      if (screen) overlay.measurement = { point: screen, text: `${measurementFormat.format(degrees)}°` }
+    }
     if (this.polygon && this.activeTool() === 'polygon' && !this.pointerEffect) {
       const { points, hover, style, parentId } = this.polygon
       overlay.polygon = { points, ...style, ...(hover ? { hover } : {}), ...(parentId ? { parentId } : {}) }
@@ -682,7 +719,7 @@ export class BoardController {
   private consumeSamples(gesture: InkGesture): number {
     const earliestSample = gesture.samples[0]?.timeStamp ?? Infinity
     for (const sample of gesture.samples) {
-      gesture.input.add(sample.point, sample.timeStamp, sample.camera, sample.viewport)
+      gesture.input.add(sample.point, sample.timeStamp, sample.camera, sample.viewport, sample.route)
     }
     gesture.samples.length = 0
     return earliestSample
@@ -726,6 +763,7 @@ export class BoardController {
 
     const tool = this.activeTool()
     const world = screenToWorld(point, this.camera, this.renderer.viewport)
+    const protractor = tool === 'pen' && !ignoresSolidInstruments(event) ? this.protractorAt(world) : undefined
     if (shouldStartPan(event.button, event.ctrlKey, this.spaceHeld, tool === 'hand')) {
       this.gesture = { kind: 'pan', pointerId: event.pointerId, last: point, button: event.button }
     } else if (this.pointerEffect) {
@@ -739,6 +777,12 @@ export class BoardController {
       this.beginSelection(tool, event.pointerId, world, shouldExtendSelection(event))
     } else if (tool === 'compass' || tool === 'compass-arc') {
       this.beginCompass(tool, event.pointerId, world)
+    } else if (protractor) {
+      const center = worldProtractorCenter(protractor)
+      this.gesture = { kind: 'protractor', pointerId: event.pointerId, instrument: protractor, target: center,
+        snap: !pointerConstrained(event), style: { color: this.style.color, size: this.style.size / this.camera.zoom },
+        parentId: this.pdfAt(center) }
+      this.refreshLive()
     } else if (tool === 'text' || tool === 'equation' || tool === 'polygon') {
       const kind = tool === 'text' ? 'textClick' : tool === 'equation' ? 'equationClick' : 'polygonClick'
       this.gesture = { kind, pointerId: event.pointerId, start: world }
@@ -756,14 +800,12 @@ export class BoardController {
         simulatePressure: event.pointerType === 'mouse',
         ...(highlighting ? { opacity: 0.35 } : {}),
       })
-      const snapDistance = instrumentSnapPixels / this.camera.zoom
-      const snap = tool === 'pen' && nearestInstrumentEdge(world, this.options.scene
-        .search(expandBounds(boundsFromPoints([world]), snapDistance))
-        .filter((object): object is InstrumentObject => object.type === 'instrument'), snapDistance)
-      const parentId = this.pdfAt(snap ? snap.point : world)
-      const gesture: InkGesture = { kind: 'ink', pointerId: event.pointerId, input, samples: [],
-        ...(parentId ? { parentId } : {}), ...(snap ? { snapEdge: snap.edge } : {}),
-        ...(tool === 'pen' && !snap && this.shapeRecognition && event.pointerType === 'mouse' ? {
+      const boundaries = this.options.scene.all().filter((object): object is InstrumentObject =>
+        object.type === 'instrument' && object.props.kind !== 'compass').map(solidBoundary)
+      const parentId = this.pdfAt(projectSolidPoint(world, boundaries, !this.solidInstruments || ignoresSolidInstruments(event)))
+      const gesture: InkGesture = { kind: 'ink', pointerId: event.pointerId, input, samples: [], boundaries,
+        ...(parentId ? { parentId } : {}),
+        ...(tool === 'pen' && this.shapeRecognition && event.pointerType === 'mouse' ? {
           recognition: { camera: this.camera, viewport: this.renderer.viewport,
             style: { color: this.style.color, size: this.style.size / this.camera.zoom }, points: [] },
         } : {}) }
@@ -776,7 +818,7 @@ export class BoardController {
 
   private pointerMove = (event: PointerEvent): void => {
     this.lastPointer = { x: event.clientX, y: event.clientY }
-    if (this.presentation || this.pointerEffect) this.refreshLive()
+    if (this.presentation || this.pointerEffect || this.compassDraft) this.refreshLive()
     const hoverEraser = !this.gesture && !this.pointerEffect && this.activeTool() === 'erase' && event.pointerType !== 'touch'
     const hoverPolygon = !this.gesture && !this.pointerEffect && this.activeTool() === 'polygon' ? this.polygon : undefined
     if (this.gesture?.pointerId !== event.pointerId && !this.touches.has(event.pointerId) && !hoverEraser && !hoverPolygon) return
@@ -821,6 +863,10 @@ export class BoardController {
       this.refreshLive()
     } else if (this.gesture.kind === 'compass-radius' || this.gesture.kind === 'compass-sweep') {
       this.updateCompass(this.gesture, world)
+    } else if (this.gesture.kind === 'protractor') {
+      this.gesture.target = world
+      this.gesture.snap = !pointerConstrained(event)
+      this.refreshLive()
     } else if (this.gesture.kind !== 'textClick' && this.gesture.kind !== 'equationClick' && this.gesture.kind !== 'polygonClick') {
       this.updateEdit(this.gesture, world, pointerConstrained(event))
     }
@@ -829,11 +875,16 @@ export class BoardController {
   private enqueueSample(gesture: InkGesture, event: PointerEvent, rect: DOMRect): void {
     const screen = eventPoint(event, rect)
     const viewport = this.renderer.viewport
+    const route: StrokeRoute | undefined = this.solidInstruments && gesture.boundaries.length && !ignoresSolidInstruments(event)
+      ? (point, previous) => traceAroundSolids(point, gesture.boundaries, previous) : undefined
     const recognition = gesture.recognition
     if (recognition) {
       if (recognition.camera !== this.camera || recognition.viewport !== viewport) this.discardRecognition()
       else {
-        recognition.points.push(screen)
+        const world = screenToWorld(screen, this.camera, viewport)
+        const positions = route?.(world, recognition.end) ?? [world]
+        recognition.end = positions.at(-1)
+        for (const point of positions) recognition.points.push(worldToScreen(point, this.camera, viewport))
         if (!recognition.anchor || distance(recognition.anchor, screen) > shapeHoldRadius) {
           recognition.anchor = screen
           window.clearTimeout(recognition.timer)
@@ -849,15 +900,13 @@ export class BoardController {
         }
       }
     }
-    const point: StrokePoint = gesture.snapEdge ? worldToScreen(
-      projectToInstrumentEdge(screenToWorld(screen, this.camera, viewport), gesture.snapEdge), this.camera, viewport,
-    ) : screen
     const pressure = event.pressure > 0 && event.pointerType !== 'mouse' ? event.pressure : undefined
     gesture.samples.push({
-      point: pressure === undefined ? point : { ...point, pressure },
+      point: pressure === undefined ? screen : { ...screen, pressure },
       timeStamp: event.timeStamp,
       camera: this.camera,
       viewport,
+      route,
     })
     this.requestFrame()
   }
@@ -895,6 +944,11 @@ export class BoardController {
     } else if (gesture.kind === 'compass-radius' || gesture.kind === 'compass-sweep') {
       this.updateCompass(gesture, world)
       this.finishCompass(gesture)
+    } else if (gesture.kind === 'protractor') {
+      const { center, end } = measureProtractor(gesture.instrument, world, !pointerConstrained(event))
+      if (distance(center, end) * this.camera.zoom >= 3) {
+        this.applyChanges([{ after: this.createShape(crypto.randomUUID(), 'line', [center, end], gesture.style, gesture.parentId) }])
+      }
     } else if (gesture.kind === 'polygonClick' || gesture.kind === 'textClick' || gesture.kind === 'equationClick') {
       if (distance(world, gesture.start) <= 6 / this.camera.zoom) {
         if (gesture.kind === 'polygonClick') this.addPolygonPoint(world, pointerConstrained(event))
@@ -994,6 +1048,7 @@ export class BoardController {
     if (action === 'hold-pan') this.spaceHeld = true
     else if (action === 'hold-eraser') this.eraserHeld = true
     else if (action === 'constrain-shape' && this.gesture?.kind === 'shape') this.gesture.constrained = true
+    else if (action === 'constrain-shape' && this.gesture?.kind === 'protractor') this.gesture.snap = false
     else if (action === 'finish-polygon' && !this.pointerEffect && this.activeTool() === 'polygon' && this.polygon) this.finishPolygon()
     else if (action === 'cancel-gesture' && (this.gesture || this.selection.size || this.polygon || this.compassDraft)) {
       this.polygon = undefined
@@ -1011,6 +1066,10 @@ export class BoardController {
     const action = findShortcut(event, 'controller', 'keyup')
     if (action === 'constrain-shape' && this.gesture?.kind === 'shape') {
       this.gesture.constrained = pointerConstrained(event)
+      this.refreshLive()
+    }
+    if (action === 'constrain-shape' && this.gesture?.kind === 'protractor') {
+      this.gesture.snap = !pointerConstrained(event)
       this.refreshLive()
     }
     if (action === 'hold-pan') {
@@ -1076,6 +1135,7 @@ export class BoardController {
       const guide = this.options.scene.all().filter((object): object is InstrumentObject =>
         object.type === 'instrument' && object.props.kind === 'compass' && !object.locked).at(-1)
       this.gesture = { kind: 'compass-radius', pointerId, arc: tool === 'compass-arc', center: point, end: point, guide,
+        rememberedRadius: this.lockCompassRadius ? this.lastCompassRadius : undefined,
         style: { color: this.style.color, size: this.style.size / this.camera.zoom }, parentId: this.pdfAt(point) }
       if (guide) this.invalidateScene()
     }
@@ -1096,8 +1156,8 @@ export class BoardController {
 
   private measureCompass(gesture: CompassRadiusGesture): CompassDraft | undefined {
     const { center, end, style, parentId, guide } = gesture
-    const radius = distance(center, end)
-    if (!Number.isFinite(radius) || radius < compassMinRadiusPixels / this.camera.zoom) return undefined
+    const radius = compassRadius(distance(center, end), compassMinRadiusPixels / this.camera.zoom, gesture.rememberedRadius)
+    if (radius === undefined) return undefined
     return { center, radius, startAngle: compassAngle(center, end), style, parentId, guide }
   }
 
@@ -1144,10 +1204,18 @@ export class BoardController {
     const sweep = gesture.kind === 'compass-sweep' ? gesture.progress.sweep : undefined
     const figure = this.compassFigure(draft, crypto.randomUUID(), sweep)
     if (!figure) return
+    this.lastCompassRadius = draft.radius
     const before = draft.guide && this.options.scene.get(draft.guide.id) === draft.guide ? draft.guide : undefined
     const after = this.compassGuide(draft, draft.startAngle + (sweep ?? 0), before?.id ?? crypto.randomUUID())
     this.applyChanges([{ after: figure }, { before, after }])
     this.setCompassDraft(undefined)
+  }
+
+  private protractorAt(point: Point): InstrumentObject | undefined {
+    const radius = protractorCenterPixels / this.camera.zoom
+    return this.options.scene.search(expandBounds(boundsFromPoints([point]), radius))
+      .filter((object): object is InstrumentObject => object.type === 'instrument' && object.props.kind === 'protractor' &&
+        distance(worldProtractorCenter(object), point) <= radius).at(-1)
   }
 
   private dragShape(gesture: ShapeGesture, id: string): ShapeObject | undefined {

@@ -21,7 +21,12 @@
 ## C2 Geometry instruments
 
 - Instruments are scene objects with shared vector geometry for the canvas and opt-in PDF export. Their standard transforms, clipboard operations and undo use the existing scene history. PDF exports omit the guides by default. Compass circles and arcs are separate shape objects.
-- Pen strokes that start within 12 CSS pixels of a ruler or set square edge use that world-space segment for the full gesture. Arc mode takes two drags and uses cubic Bézier segments for the drawing. The draft is transient and Esc cancels it.
+- Arc mode takes two drags and uses cubic Bézier segments for the drawing. The draft is transient and Esc cancels it.
+
+## C2b Instrument guides
+
+- With solid instruments enabled, pen and highlighter project interior input onto the transformed body outline, including the filtered samples and the final endpoint. The centerline follows the boundary when samples jump across a body. The Alt modifier bypasses the guide for that input. Pen recognition uses the projected points.
+- Protractor rays start at the transformed center and measure relative to the instrument's base. Shift bypasses degree rounding. Angle and compass radius readings use live canvas labels. The compass lock remembers the last successful radius in board units for the session.
 
 ## Quick graph, calculator and quadratic solver
 

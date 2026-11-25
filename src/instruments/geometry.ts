@@ -63,14 +63,21 @@ function label(text: string, x: number, y: number, size: number, align: Instrume
   return { text, x, y, size, align }
 }
 
-function outlinePoints(kind: InstrumentKind, width: number, height: number): readonly Point[] {
+export function instrumentOutline(kind: InstrumentKind, width: number, height: number): readonly Point[] {
   if (kind === 'ruler') return [point(0, 0), point(width, 0), point(width, height), point(0, height)]
   if (kind === 'set-square-45' || kind === 'set-square-30') return [point(0, 0), point(width, height), point(0, height)]
+  if (kind === 'protractor') {
+    const center = protractorCenter(width, height)
+    return Array.from({ length: 91 }, (_, index) => {
+      const angle = index * Math.PI / 90
+      return point(center.x * (1 + Math.cos(angle)), center.y * (1 - Math.sin(angle)))
+    })
+  }
   return []
 }
 
 function edgesFor(kind: InstrumentKind, width: number, height: number): InstrumentEdge[] {
-  const points = outlinePoints(kind, width, height)
+  const points = instrumentOutline(kind, width, height)
   return points.map((start, index) => ({ start, end: points[(index + 1) % points.length]! }))
 }
 
@@ -78,7 +85,7 @@ function rulerGeometry(width: number, height: number): InstrumentGeometry {
   const { width: defaultWidth, height: defaultHeight } = dimensions.ruler
   const unitX = width / defaultWidth
   const unitY = height / defaultHeight
-  const paths: InstrumentPath[] = [outline(outlinePoints('ruler', width, height))]
+  const paths: InstrumentPath[] = [outline(instrumentOutline('ruler', width, height))]
   const labels: InstrumentLabel[] = []
   for (let mm = 0; mm <= rulerCentimeters * 10; mm++) {
     const x = (rulerMargin + mm * pixelsPerCentimeter / 10) * unitX
@@ -92,7 +99,7 @@ function rulerGeometry(width: number, height: number): InstrumentGeometry {
 }
 
 function squareGeometry(kind: 'set-square-45' | 'set-square-30', width: number, height: number): InstrumentGeometry {
-  const points = outlinePoints(kind, width, height)
+  const points = instrumentOutline(kind, width, height)
   const size = Math.min(width, height) / 16
   const square = 1.7 * size
   const paths = [
@@ -108,9 +115,12 @@ function squareGeometry(kind: 'set-square-45' | 'set-square-30', width: number, 
   return { paths, labels, edges: edgesFor(kind, width, height) }
 }
 
+export function protractorCenter(width: number, height: number): Point {
+  return point(width / 2, height * 170 / dimensions.protractor.height)
+}
+
 function protractorGeometry(width: number, height: number): InstrumentGeometry {
-  const defaultHeight = dimensions.protractor.height
-  const origin = point(width / 2, height * 170 / defaultHeight)
+  const origin = protractorCenter(width, height)
   const rx = width / 2
   const ry = origin.y
   const size = Math.min(rx, ry) * 0.06
@@ -118,7 +128,7 @@ function protractorGeometry(width: number, height: number): InstrumentGeometry {
     const radians = degrees * Math.PI / 180
     return point(origin.x + rx * radius * Math.cos(radians), origin.y - ry * radius * Math.sin(radians))
   }
-  const body = Array.from({ length: 91 }, (_, index) => at(index * 2, 1))
+  const body = instrumentOutline('protractor', width, height)
   const paths: InstrumentPath[] = [outline(body)]
   const labels: InstrumentLabel[] = []
   for (let angle = 0; angle <= 180; angle++) {
@@ -168,9 +178,8 @@ export function getInstrumentGeometry(kind: InstrumentKind, width: number, heigh
   return squareGeometry(kind, width, height)
 }
 
-export function instrumentEdges({ props, transform: [a, b, c, d, e, f] }: InstrumentPlacement): InstrumentEdge[] {
-  const world = ({ x, y }: Point) => point(a * x + c * y + e, b * x + d * y + f)
-  return edgesFor(props.kind, props.width, props.height).map(({ start, end }) => ({ start: world(start), end: world(end) }))
+export function instrumentPoint([a, b, c, d, e, f]: Affine, { x, y }: Point): Point {
+  return point(a * x + c * y + e, b * x + d * y + f)
 }
 
 export function projectToInstrumentEdge(value: Point, { start, end }: InstrumentEdge): Point {
@@ -184,21 +193,4 @@ export function projectToInstrumentEdge(value: Point, { start, end }: Instrument
   if (position <= 0) return start
   if (position >= length) return end
   return point(start.x + ux * position, start.y + uy * position)
-}
-
-export function nearestInstrumentEdge(value: Point, instruments: readonly InstrumentPlacement[], maxDistance: number):
-  { edge: InstrumentEdge; point: Point } | undefined {
-  if (!(maxDistance >= 0)) return undefined
-  let nearest: { edge: InstrumentEdge; point: Point } | undefined
-  let distance = maxDistance
-  for (const instrument of instruments) {
-    for (const edge of instrumentEdges(instrument)) {
-      const projected = projectToInstrumentEdge(value, edge)
-      const candidate = Math.hypot(projected.x - value.x, projected.y - value.y)
-      if (candidate > distance || !Number.isFinite(candidate)) continue
-      distance = candidate
-      nearest = { edge, point: projected }
-    }
-  }
-  return nearest
 }

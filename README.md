@@ -32,6 +32,8 @@ Pressione **?** ou abra **Arquivo → Atalhos** para consultar a lista completa,
 | Abrir calculadora científica ou Bhaskara | **Calculadora** ou `F8`. **Bhaskara** ou `Shift+F8`. Arraste o painel pelo cabeçalho |
 | Inserir instrumentos | Menu **Instrumentos** ou `Alt+1` régua, `Alt+2` esquadro de 45°, `Alt+3` esquadro de 30°–60°, `Alt+4` transferidor |
 | Desenhar com o compasso | `Alt+5` para círculo e `Alt+6` para arco. Arraste para definir o raio. Para arco, arraste de novo para definir a abertura |
+| Contornar instrumentos | **Instrumentos sólidos** em **Ajustes** ou `Alt+9`. Segure `Alt` para ignorar temporariamente |
+| Medir com o transferidor e repetir o raio do compasso | Com **Caneta**, arraste do centro do transferidor. Segure `Shift` para graus fracionários. No compasso, **Travar raio** ou `Alt+R` reaproveita o último raio |
 | Restringir formas | Segure `Shift` para ângulos de 45° em linhas, setas ou segmentos do polígono e para desenhar quadrados ou círculos |
 | Reconhecer formas com a caneta | Segure o botão esquerdo parado por **0,7 s** no fim de um traço. Use **Reconhecer** ou `Alt+8` para alternar e `Ctrl+Z` para recuperar a tinta |
 | Suavizar o traço | Controle Estabilizador de 0 a 100 |
@@ -55,7 +57,7 @@ Em um plano cartesiano, ajuste os limites dos eixos, o passo e a proporção 1:1
 
 A calculadora científica usa vírgula na tela e aceita ponto ao digitar. **2nd** alterna as funções do teclado. Use **Enter** para calcular, **Esc** para limpar e, com o campo vazio, **Esc** para fechar. A calculadora começa em graus. Em **Bhaskara**, digite `x²-5x+6=0` ou forneça os coeficientes como `3/2` ou `0,5`. Use **Inserir na lousa** para guardar a resolução como equações editáveis e incluí-la no PDF.
 
-Os instrumentos ficam sobre a lousa. Em **Seleção**, arraste o corpo para mover e a alça superior para girar. Com **Caneta**, comece o gesto a cerca de 12 px de uma borda da régua ou do esquadro para desenhar sobre ela. A régua tem 10 cm na escala visual do instrumento. **Arquivo → Incluir instrumentos no PDF** ou `Alt+7` inclui as guias no PDF como vetor. Círculos, arcos e tinta fazem parte do desenho exportado por padrão.
+Os instrumentos translúcidos ficam sobre a lousa. Em **Seleção**, arraste o corpo para mover e a alça superior para girar. Com **Instrumentos sólidos** ligado, a Caneta e o Marca-texto contornam o corpo da régua, dos esquadros e do transferidor. **Arquivo → Incluir instrumentos no PDF** ou `Alt+7` inclui as guias no PDF como vetor. Círculos, arcos e tinta fazem parte do desenho exportado por padrão.
 
 As páginas PDF entram travadas para anotação e geram quadros na ordem. Em **Quadros**, destrave uma página para movê-la ou desative a criação automática antes de importar. Ao mover uma página, a tinta ancorada e o quadro vinculado a acompanham. Na exportação, o PDF de origem é incorporado quando possível. Páginas incompatíveis são renderizadas em alta resolução e a lousa informa quantas usaram essa alternativa.
 

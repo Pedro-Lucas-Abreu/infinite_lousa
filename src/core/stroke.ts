@@ -123,11 +123,15 @@ export function strokeOutline(stroke: Stroke, complete = true): readonly Point[]
   return outline;
 }
 
+export type StrokeRoute = (point: Point, previous?: Point) => readonly Point[];
+
 export class StrokeInput {
   #points: StrokePoint[] = [];
   #filter: OneEuroFilter;
   #lastPosition?: Point;
   #lastPressure: number | undefined;
+  #lastGroupStart = 0;
+  #lastRoute?: StrokeRoute;
 
   constructor(private readonly brush: Brush) {
     this.#filter = new OneEuroFilter(stabilizerFraction(brush.stabilizer));
@@ -137,17 +141,23 @@ export class StrokeInput {
     return this.#points.length;
   }
 
-  add(screenPoint: StrokePoint, timestampMs: number, camera: Camera, viewport: Viewport): void {
+  add(screenPoint: StrokePoint, timestampMs: number, camera: Camera, viewport: Viewport, route?: StrokeRoute): void {
     if (!Number.isFinite(screenPoint.x) || !Number.isFinite(screenPoint.y)) return;
 
     const filtered = this.#filter.sample({ x: screenPoint.x, y: screenPoint.y }, timestampMs);
-    const point = withPressure(screenToWorld(filtered, camera, viewport), screenPoint.pressure);
+    const point = screenToWorld(filtered, camera, viewport);
     this.#lastPosition = screenToWorld(screenPoint, camera, viewport);
-    this.#lastPressure = point.pressure ?? this.#lastPressure;
+    this.#lastPressure = withPressure(point, screenPoint.pressure).pressure ?? this.#lastPressure;
+    this.#lastRoute = route;
 
-    const previous = this.#points.at(-1);
-    if (previous?.x === point.x && previous.y === point.y && previous.pressure === point.pressure) return;
-    this.#points.push(point);
+    const groupStart = this.#points.length;
+    for (const position of route?.(point, this.#points.at(-1)) ?? [point]) {
+      const sample = withPressure(position, screenPoint.pressure);
+      const previous = this.#points.at(-1);
+      if (previous?.x === sample.x && previous.y === sample.y && previous.pressure === sample.pressure) continue;
+      this.#points.push(sample);
+    }
+    if (this.#points.length !== groupStart) this.#lastGroupStart = groupStart;
   }
 
   preview(): Stroke | undefined {
@@ -158,7 +168,8 @@ export class StrokeInput {
   finish(id: string, zIndex: number): Stroke | undefined {
     if (!this.#lastPosition) return undefined;
 
-    const endpoint = withPressure(this.#lastPosition, this.#lastPressure);
-    return createStroke(id, [...this.#points.slice(0, -1), endpoint], this.brush, zIndex);
+    const preceding = this.#points.slice(0, this.#lastGroupStart);
+    const last = this.#lastRoute?.(this.#lastPosition, preceding.at(-1)) ?? [this.#lastPosition];
+    return createStroke(id, [...preceding, ...last.map((point) => withPressure(point, this.#lastPressure))], this.brush, zIndex);
   }
 }
