@@ -29,6 +29,11 @@
 - The calculator shares the arithmetic parser with plotting. Calculator-specific domain errors, angles, remainder and factorial use the calculator context. The display rounds to 12 significant digits while chained calculations use the full result.
 - Bhaskara uses normalized rational coefficients. Radical simplification extracts factors through 10,000 and any remaining perfect square. A large composite can remain under the radical with its exact value. The floating panels are UI state. Inserting a derivation creates ordinary vector equation objects in one history operation.
 
+## New board
+
+- The new board flow atomically replaces the IndexedDB objects, history and assets before clearing the scene. Its undo checkpoint retains the old document and file handle in memory for 30 seconds or until the first edit. A restored checkpoint is saved through the same transaction.
+- A native file write must close successfully before backup-and-clear proceeds. The browser download fallback cannot report completion. It keeps the current board and asks the user to verify the file before discarding. Native file associations are session state.
+
 ## Milestone 1 decisions
 
 - `src/core` owns scene data, coordinates, spatial queries, and stroke geometry. Keep the model serializable. Canvas contexts, `Path2D` objects and index entries are derived state.

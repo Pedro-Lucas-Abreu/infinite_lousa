@@ -1,6 +1,6 @@
 import { latexExpansionDetails, latexReplacementDetails } from '../equations/shortcuts'
 
-export type ShortcutScope = 'board' | 'controller' | 'text' | 'equation' | 'panel' | 'plot' | 'quick-graph' | 'calculator' | 'bhaskara'
+export type ShortcutScope = 'board' | 'controller' | 'text' | 'equation' | 'panel' | 'plot' | 'quick-graph' | 'calculator' | 'bhaskara' | 'new-board'
 export type ShortcutCategory = 'Ferramentas' | 'Lousa' | 'PDF e quadros' | 'Equações' | 'Edição'
 
 export interface KeyBinding {
@@ -134,6 +134,8 @@ export const shortcuts = [
   board('redo', 'Edição', 'Refazer', command('y'), command('z', true)),
   board('save', 'Lousa', 'Salvar lousa', command('s')),
   board('save-as', 'Lousa', 'Salvar uma cópia', command('s', true)),
+  board('new-board', 'Lousa', 'Nova lousa', { ...alt('0'), single: true }),
+  entry('cancel-new-board', 'new-board', 'Lousa', 'Cancelar nova lousa', [plain('Escape')]),
   board('open-board', 'Lousa', 'Abrir lousa', command('o')),
   board('open-image', 'Lousa', 'Importar imagem', plain('i', true)),
   board('open-pdf', 'PDF e quadros', 'Importar PDF', plain('d', true)),

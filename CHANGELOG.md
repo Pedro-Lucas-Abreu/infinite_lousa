@@ -1,5 +1,11 @@
 # Mudanças
 
+## Nova lousa
+
+- Use **Arquivo → Nova lousa**, **Nova** na barra ou **Alt+0**. Uma lousa com conteúdo pede confirmação. Você pode exportar PDF, salvar o arquivo `.board` ou apagar direto.
+- A limpeza volta ao zoom de 100%, mantém as preferências e inicia um documento sem vínculo com o arquivo anterior. **Desfazer** restaura a lousa, a câmera e o vínculo por 30 segundos ou até a primeira edição.
+- A exportação ou o salvamento precisam ser confirmados pelo navegador para iniciar a limpeza. Quando o navegador oferece só download, confira o arquivo antes de escolher **Apagar sem salvar**.
+
 ## Gráfico rápido, calculadora e Bhaskara
 
 - Clique em **Gráfico** ou pressione **Z**. Digite `y = x^2 - 4` ou `x^2 - 4` e confirme com **Enter**. Se houver um plano selecionado, a função entra nele. O editor avisa quando a escala precisa de ajuste para exibir a curva.

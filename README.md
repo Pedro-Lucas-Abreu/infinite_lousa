@@ -40,6 +40,7 @@ Pressione **?** ou abra **Arquivo → Atalhos** para consultar a lista completa,
 | Voltar à origem e ao zoom de 100% | Tecla `0` ou clique no percentual |
 | Desfazer / refazer | `Ctrl+Z` / `Ctrl+Y` ou `Ctrl+Shift+Z` |
 | Abrir / salvar `.board` | Menu Arquivo ou `Ctrl+O` / `Ctrl+S` |
+| Começar uma nova lousa | **Arquivo → Nova lousa**, botão **Nova** ou `Alt+0`. Fora do modo apresentação |
 | Inserir imagem / PDF | `I` / `D`, arraste o arquivo ou use `Ctrl+V` quando o navegador disponibilizar o arquivo |
 | Trocar o fundo | `G` ou menu **Fundo** |
 | Travar uma página | `U` na página selecionada ou no quadro vinculado. Também disponível em **Quadros** |

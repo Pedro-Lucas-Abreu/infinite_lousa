@@ -7,7 +7,9 @@ import { screenToWorld } from './core/camera'
 import { objectBounds, Scene } from './core/scene'
 import type { Affine, BoardChange, BoardObject, EquationObject, EquationPath, FrameObject, InstrumentObject, PageObject, PlotObject, Point, TextObject } from './core/types'
 import { BoardDocument } from './documents/store'
-import { decodeFromFile, openBoardFile, saveBoardFile } from './documents/files'
+import { decodeFromFile, openBoardFile, saveBoardFile, savePdfFile, type BoardFileLink } from './documents/files'
+import { beginNewBoard, emptyBoard, NEW_BOARD_UNDO_MS, NewBoardUndo, newBoardCamera, newBoardFile,
+  newBoardNeedsConfirmation, newBoardPdfScope, type ClearedBoard, type NewBoardAction } from './documents/new-board'
 import { registerPwa } from './pwa/register'
 import type { BenchmarkControls } from './benchmark'
 import type { BoardAsset, PortableBoard } from './documents/archive'
@@ -26,6 +28,7 @@ import { QuickGraph } from './ui/quick-graph'
 import { Calculator } from './ui/calculator'
 import { Bhaskara } from './ui/bhaskara'
 import { ShortcutsPanel } from './ui/shortcuts-panel'
+import { NewBoardDialog } from './ui/new-board-dialog'
 import { findShortcut, shortcutAria, shortcutLabel } from './shortcuts'
 import { DEFAULT_PLOT_SETTINGS, getPlotGeometry, MAX_PLOT_FUNCTIONS } from './plot/geometry'
 import { alignPlotAxes } from './plot/object'
@@ -123,7 +126,11 @@ function Board() {
   const fileMenu = useRef<HTMLDetailsElement>(null)
   const pwa = useRef<PwaControls | null>(null)
   const fileOperation = useRef(false)
-  const filename = useRef('lousa.board')
+  const fileLink = useRef<BoardFileLink | null>(newBoardFile)
+  const newBoardOpenRef = useRef(false)
+  const resetPending = useRef(false)
+  const resetUndo = useRef(new NewBoardUndo())
+  const resetTimer = useRef<number | undefined>(undefined)
   const frameId = useRef<string | null>(null)
   const frameName = useRef('')
   const createPdfFrames = useRef(true)
@@ -156,6 +163,9 @@ function Board() {
   const [isReady, setIsReady] = useState(false)
   const [message, setMessage] = useState('')
   const [fileBusy, setFileBusy] = useState(false)
+  const [newBoardOpen, setNewBoardOpen] = useState(false)
+  const [newBoardError, setNewBoardError] = useState('')
+  const [canUndoClear, setCanUndoClear] = useState(false)
   const [history, setHistory] = useState({ undo: false, redo: false })
   const [pwaState, setPwaState] = useState<PwaState>({ offline: 'loading', canInstall: false, updateAvailable: false })
   const [zoom, setZoom] = useState(1)
@@ -482,6 +492,7 @@ function Board() {
   function applyChanges(changes: readonly BoardChange[], assets?: readonly BoardAsset[]) {
     if (changes.length === 0 || !documentRef.current) return
     documentRef.current.applyChanges(changes, assets)
+    forgetClearedBoard()
     controller.current?.invalidateScene()
     refreshObjects()
     updateHistory()
@@ -544,6 +555,13 @@ function Board() {
   }
 
   function changeHistory(action: 'undo' | 'redo') {
+    if (action === 'undo' && resetUndo.current.snapshot(Date.now())) {
+      controller.current?.finishDocumentInput()
+      if (resetUndo.current.snapshot(Date.now())) {
+        restoreClearedBoard()
+        return
+      }
+    }
     if (fileOperation.current || !documentRef.current?.[action]()) return
     controller.current?.invalidateScene()
     controller.current?.clearSelection()
@@ -562,20 +580,27 @@ function Board() {
     finally { fileOperation.current = false; setFileBusy(false) }
   }
 
-  async function replaceDocument(portable: PortableBoard, name: string) {
+  function refreshReplacedDocument(camera: ClearedBoard['camera'], active: string | null) {
+    resetPreviews.current?.()
+    controller.current?.clearDocumentInput()
+    controller.current?.setCamera(camera)
+    controller.current?.invalidateScene()
+    frameName.current = ''
+    setFrameActive(active)
+    refreshObjects()
+    updateHistory()
+  }
+
+  async function replaceDocument(portable: PortableBoard, file: BoardFileLink) {
     const current = documentRef.current
     if (!current) return
     if (current.portable().scene.objects.length &&
       !window.confirm('Abrir este arquivo substitui a lousa atual. Se precisar dela, salve uma cópia primeiro. Deseja abrir agora?')) return
 
     await current.replace(portable)
-    resetPreviews.current?.()
-    controller.current?.clearSelection()
-    filename.current = name
-    controller.current?.setCamera({ x: 0, y: 0, zoom: 1 })
-    controller.current?.invalidateScene()
-    refreshObjects()
-    updateHistory()
+    forgetClearedBoard()
+    fileLink.current = file
+    refreshReplacedDocument(newBoardCamera, null)
     setMessage('Lousa aberta')
   }
 
@@ -589,7 +614,7 @@ function Board() {
     }
     void runFileOperation(async () => {
       const result = await openBoardFile(fallbackInput)
-      if (result.kind === 'opened') await replaceDocument(result.board, result.filename)
+      if (result.kind === 'opened') await replaceDocument(result.board, result.file)
     }, 'Não foi possível abrir o arquivo. A lousa atual foi preservada.')
   }
 
@@ -597,12 +622,116 @@ function Board() {
     void runFileOperation(async () => {
       const portable = documentRef.current?.portable()
       if (!portable) return
-      const result = await saveBoardFile(portable, filename.current, download)
+      const result = await saveLinkedBoard(portable, download)
       if (result.kind !== 'cancelled') {
-        filename.current = result.filename
         setMessage(result.kind === 'saved' ? 'Arquivo salvo' : 'Download iniciado')
       }
     }, 'Não foi possível salvar o arquivo. Tente baixar uma cópia pelo menu Arquivo.')
+  }
+
+  async function saveLinkedBoard(portable: PortableBoard, download = false) {
+    const result = await saveBoardFile(portable, fileLink.current, download)
+    if (result.kind === 'saved') fileLink.current = result.file
+    return result
+  }
+
+  function forgetClearedBoard() {
+    if (resetTimer.current !== undefined) window.clearTimeout(resetTimer.current)
+    resetTimer.current = undefined
+    resetUndo.current.discard()
+    setCanUndoClear(false)
+  }
+
+  function showNewBoard(open: boolean) {
+    newBoardOpenRef.current = open
+    setNewBoardOpen(open)
+    setNewBoardError('')
+  }
+
+  function requestNewBoard() {
+    const board = controller.current
+    const doc = documentRef.current
+    if (!board || !doc || fileOperation.current || newBoardOpenRef.current || presentingRef.current ||
+      textDraftRef.current || equationDraftRef.current || plotDraftRef.current || quickGraphRef.current) return
+    if (fileMenu.current) fileMenu.current.open = false
+    board.finishDocumentInput()
+    if (newBoardNeedsConfirmation(doc.portable())) showNewBoard(true)
+    else confirmNewBoard('discard')
+  }
+
+  function runBoardReset(work: () => Promise<void>, errorMessage: string) {
+    const board = controller.current
+    if (!board) return
+    void runFileOperation(async () => {
+      resetPending.current = true
+      try {
+        board.setDocumentChangePending(true)
+        await work()
+      } finally {
+        board.setDocumentChangePending(false)
+        resetPending.current = false
+      }
+    }, errorMessage)
+  }
+
+  function confirmNewBoard(action: NewBoardAction) {
+    if (presentingRef.current) return
+    const doc = documentRef.current
+    const board = controller.current
+    if (!doc || !board) return
+    const resetFailure = 'Não foi possível limpar a lousa. O conteúdo atual foi preservado.'
+    runBoardReset(async () => {
+      setNewBoardError('')
+      let failure = resetFailure
+      const portable = doc.portable()
+      const hasContent = newBoardNeedsConfirmation(portable)
+      try {
+        const outcome = await beginNewBoard(action, async () => {
+          if (action === 'save') {
+            failure = 'Não foi possível salvar o arquivo. A lousa atual foi preservada.'
+            return saveLinkedBoard(portable)
+          }
+          failure = 'Não foi possível exportar o PDF. A lousa atual foi preservada.'
+          return savePdfFile(async () => (await preparePdf(portable, newBoardPdfScope(portable))).blob)
+        }, async () => {
+          failure = resetFailure
+          const snapshot: ClearedBoard = {
+            checkpoint: doc.checkpoint(), camera: board.getCamera(), file: fileLink.current, frameId: frameId.current,
+          }
+          await doc.flush()
+          await doc.replace(emptyBoard)
+          if (hasContent) forgetClearedBoard()
+          fileLink.current = newBoardFile
+          refreshReplacedDocument(newBoardCamera, null)
+          showNewBoard(false)
+          if (hasContent) {
+            resetUndo.current.remember(snapshot, Date.now())
+            setCanUndoClear(true)
+            resetTimer.current = window.setTimeout(forgetClearedBoard, NEW_BOARD_UNDO_MS)
+          } else setMessage('Nova lousa criada.')
+        })
+        if (outcome === 'cancelled') failure = 'Operação cancelada. A lousa atual foi preservada.'
+        if (outcome === 'unverified') failure = 'Download iniciado. Confira o arquivo antes de usar “Apagar sem salvar”. A lousa atual foi preservada.'
+        if (outcome === 'cleared') return
+      } catch { /* Keep the current board and report the failing step. */ }
+      setNewBoardError(failure)
+      setMessage(failure)
+    }, resetFailure)
+  }
+
+  function restoreClearedBoard() {
+    if (fileOperation.current) return
+    controller.current?.finishDocumentInput()
+    const doc = documentRef.current
+    const snapshot = resetUndo.current.snapshot(Date.now())
+    if (!doc || !snapshot) return
+    runBoardReset(async () => {
+      await doc.restore(snapshot.checkpoint)
+      fileLink.current = snapshot.file
+      refreshReplacedDocument(snapshot.camera, snapshot.frameId)
+      forgetClearedBoard()
+      setMessage('Lousa restaurada.')
+    }, 'Não foi possível restaurar a lousa. Tente outra vez.')
   }
 
   function openAsset(accept: string) {
@@ -653,6 +782,15 @@ function Board() {
     }, 'Não foi possível importar. Use uma imagem local ou um PDF sem senha.')
   }
 
+  async function preparePdf(portable: PortableBoard, scope: 'frames' | 'all') {
+    const { background, exportInstruments } = useSettings.getState()
+    const { bytes, fallbackPages, fallbackTexts } = await exportPdf(portable, {
+      scope, background: background === 'dark' ? '#171e2d' : '#ffffff', includeInstruments: exportInstruments,
+    })
+    const blob = new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' })
+    return { blob, fallbackPages, fallbackTexts }
+  }
+
   function exportBoard(mode: 'frames' | 'all' | 'png') {
     void runFileOperation(async () => {
       const portable = documentRef.current?.portable()
@@ -664,10 +802,8 @@ function Board() {
         download(await exportPng(portable, { frameId: id, background }), 'quadro.png')
         setMessage('PNG do quadro exportado.')
       } else {
-        const { bytes, fallbackPages, fallbackTexts } = await exportPdf(portable, {
-          scope: mode, background, includeInstruments: useSettings.getState().exportInstruments,
-        })
-        download(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }), 'lousa.pdf')
+        const { blob, fallbackPages, fallbackTexts } = await preparePdf(portable, mode)
+        download(blob, 'lousa.pdf')
         const notes = [fallbackPages ? `Páginas em imagem de alta resolução: ${fallbackPages}.` : '',
           fallbackTexts ? `Objetos de texto em imagem por caracteres incompatíveis: ${fallbackTexts}.` : ''].filter(Boolean)
         setMessage(['PDF exportado.', ...notes].join(' '))
@@ -737,6 +873,7 @@ function Board() {
       onStrokeCommit: (stroke) => {
         if (documentRef.current) {
           documentRef.current.recordStroke(stroke)
+          forgetClearedBoard()
           setMessage('')
         }
         updateHistory()
@@ -756,7 +893,8 @@ function Board() {
 
     function handleShortcut(event: KeyboardEvent) {
       const target = event.target
-      if (event.defaultPrevented || shortcutsOpenRef.current || plotDraftRef.current || quickGraphRef.current) return
+      if (event.defaultPrevented || shortcutsOpenRef.current || plotDraftRef.current || quickGraphRef.current ||
+        newBoardOpenRef.current || resetPending.current) return
 
       const action = findShortcut(event, 'board')
       if (!action) return
@@ -781,6 +919,7 @@ function Board() {
         case 'redo': changeHistory('redo'); break
         case 'save': saveFile(); break
         case 'save-as': saveFile(true); break
+        case 'new-board': if (presentingRef.current) return; requestNewBoard(); break
         case 'open-board': openFile(); break
         case 'duplicate': if (!hasSelection) return; board.duplicateSelection(); break
         case 'copy': if (!hasSelection) return; copySelection(); break
@@ -903,6 +1042,8 @@ function Board() {
 
     return () => {
       disposed = true
+      if (resetTimer.current !== undefined) window.clearTimeout(resetTimer.current)
+      resetUndo.current.discard()
       benchmark?.destroy()
       unsubscribePwa?.()
       pwa.current?.destroy()
@@ -931,6 +1072,8 @@ function Board() {
         <details className="file-menu" ref={fileMenu}>
           <summary aria-label="Arquivo">Arquivo</summary>
           <div className="file-actions">
+            <button type="button" disabled={presenting || fileBusy || !isReady}
+              aria-keyshortcuts={shortcutAria('new-board')} onClick={requestNewBoard}>Nova lousa</button>
             <button type="button" disabled={fileBusy || !isReady} onClick={() => openFile()}>Abrir lousa</button>
             <button type="button" disabled={fileBusy || !isReady} onClick={() => saveFile()}>Salvar lousa</button>
             <button type="button" disabled={fileBusy || !isReady} onClick={() => openFile(true)}>Abrir via upload</button>
@@ -957,7 +1100,7 @@ function Board() {
             const file = event.target.files?.[0]
             event.target.value = ''
             if (file) void runFileOperation(async () => {
-              await replaceDocument(await decodeFromFile(file), file.name)
+              await replaceDocument(await decodeFromFile(file), { name: file.name })
             }, 'Não foi possível abrir o arquivo. A lousa atual foi preservada.')
           }} />
         <input hidden type="file" ref={assetInput} multiple aria-label="Imagem ou PDF" onChange={(event) => {
@@ -966,11 +1109,14 @@ function Board() {
           importAssets(files)
         }} />
         <div className="history-group" role="group" aria-label="Histórico">
-          <button type="button" aria-label="Desfazer" title={`Desfazer (${shortcutLabel('undo')})`} disabled={!history.undo || fileBusy}
+          <button type="button" aria-label="Desfazer" title={`Desfazer (${shortcutLabel('undo')})`} disabled={(!history.undo && !canUndoClear) || fileBusy}
             onClick={() => changeHistory('undo')}>↶</button>
           <button type="button" aria-label="Refazer" title={`Refazer (${shortcutLabel('redo')})`} disabled={!history.redo || fileBusy}
             onClick={() => changeHistory('redo')}>↷</button>
         </div>
+        <button type="button" disabled={presenting || fileBusy || !isReady} aria-label="Nova lousa"
+          aria-haspopup="dialog" aria-keyshortcuts={shortcutAria('new-board')}
+          title={`Nova lousa (${shortcutLabel('new-board')})`} onClick={requestNewBoard}>Nova</button>
         <details className="file-menu">
           <summary title="Ações da seleção">Editar</summary>
           <div className="file-actions">
@@ -1062,6 +1208,8 @@ function Board() {
           {message || ({ saved: 'Salvo neste navegador', saving: 'Salvando…',
             error: 'Falha ao salvar no navegador. Baixe uma cópia.', recovering: 'Abrindo a lousa…' })[saveStatus]}
         </div>
+        {canUndoClear && <div className="clear-undo">Lousa limpa. <button type="button" disabled={fileBusy}
+          onClick={restoreClearedBoard}>Desfazer</button></div>}
         {compassInstructions && <p className="compass-instructions" aria-live="polite">{compassInstructions}</p>}
         <div className="pwa-group" data-offline={pwaState.offline}>
           {pwaState.offline === 'ready' && <span>Pronto offline</span>}
@@ -1089,6 +1237,8 @@ function Board() {
         </div>
       </footer>
       <ShortcutsPanel open={shortcutsOpen} onClose={() => showShortcuts(false)} />
+      {newBoardOpen && <NewBoardDialog busy={fileBusy} error={newBoardError} onChoose={confirmNewBoard}
+        onCancel={() => showNewBoard(false)} />}
       {plotDraft && <PlotEditor initial={plotDraft.initial} editing={Boolean(plotDraft.object)}
         onSave={commitPlot} onCancel={closePlotEditor} />}
       {quickGraph && <QuickGraph selected={Boolean(quickGraph.target)} onSubmit={submitQuickGraph} onCancel={closeQuickGraph} />}

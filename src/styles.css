@@ -451,6 +451,21 @@ button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-vi
 .quick-graph-actions button[type='submit']:enabled,
 .floating-panel-actions button[type='submit']:enabled { background: var(--accent); color: #fff; }
 .quick-graph-actions button:disabled, .floating-panel-actions button:disabled { opacity: .55; }
+.new-board-dialog p { margin: 0 0 12px; }
+.new-board-actions { display: grid; gap: 7px; }
+.new-board-actions button {
+  min-height: 40px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: #192038;
+  background: #f5f6f8;
+  text-align: left;
+}
+.new-board-actions .destructive { color: #892735; background: #fff0f1; border-color: #e1a0a8; }
+.new-board-actions button:disabled { opacity: .55; }
+.new-board-dialog .quick-graph-error, .new-board-dialog p[role='status'] { margin-top: 10px; }
+.clear-undo button { margin-inline-start: 6px; }
 
 .floating-panel {
   position: fixed;

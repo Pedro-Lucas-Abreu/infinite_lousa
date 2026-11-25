@@ -26,7 +26,13 @@ type Edit = {
   insertCommand?: { index: number; command: Command; prune: boolean };
 };
 
-type Replacement = { type: "replace"; revision: Revision; board: PortableBoard };
+export interface BoardCheckpoint {
+  readonly board: PortableBoard;
+  readonly history: readonly Command[];
+  readonly cursor: number;
+}
+
+type Replacement = { type: "replace"; revision: Revision; board: PortableBoard; history: readonly Command[] };
 
 interface DocumentDB extends DBSchema {
   meta: { key: typeof CURRENT; value: Revision };
@@ -215,25 +221,33 @@ export class BoardDocument {
     return { scene: this.scene.snapshot(), assets: Array.from(this.#assets.values()) };
   }
 
-  async replace(board: PortableBoard): Promise<void> {
+  checkpoint(): BoardCheckpoint {
+    return { board: this.portable(), history: this.#history.slice(), cursor: this.#revision.cursor };
+  }
+
+  replace(board: PortableBoard): Promise<void> {
+    return this.restore({ board, history: [], cursor: 0 });
+  }
+
+  async restore({ board, history, cursor }: BoardCheckpoint): Promise<void> {
     if (this.#replacing) throw new Error("A board replacement is already in progress.");
     this.#replacing = true;
     try {
       // Check geometry and index construction before changing either the database or the visible scene.
       const inspected = new Scene(board.scene.objects);
-      const revision = { revision: this.#revision.revision + 1, cursor: 0, historyLength: 0 };
+      const revision = { revision: this.#revision.revision + 1, cursor, historyLength: history.length };
       if (this.db) {
         await this.flush();
         this.#setStatus("saving");
         try {
-          await this.#write({ type: "replace", revision, board });
+          await this.#write({ type: "replace", revision, board, history });
         } catch (error) {
           this.#setStatus("error");
           throw error;
         }
       }
       this.scene.replace(inspected.all());
-      this.#history = [];
+      this.#history = history.slice();
       this.#assets = new Map(board.assets.map((asset) => [asset.id, asset]));
       this.#revision = revision;
       if (this.db) this.#setStatus("saved");
@@ -298,6 +312,7 @@ export class BoardDocument {
         requests.push(objects.clear(), commands.clear(), assets.clear());
         for (const object of operation.board.scene.objects) requests.push(objects.put(object, object.id));
         for (const asset of operation.board.assets) requests.push(assets.put(asset, asset.id));
+        operation.history.forEach((command, index) => requests.push(commands.put(command, index)));
       } else {
         const { changes, insertCommand } = operation;
         for (const { before, after } of changes) {

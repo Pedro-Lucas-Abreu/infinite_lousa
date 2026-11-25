@@ -226,6 +226,7 @@ export class BoardController {
   private pointerEffect: PointerEffect | null = null
   private selection = new Set<string>()
   private clipboard: readonly BoardObject[] = []
+  private documentChangePending = false
   private preview: Stroke | undefined
   private backgroundDirty = true
   private liveDirty = true
@@ -348,6 +349,25 @@ export class BoardController {
 
   clearSelection(): void {
     if (this.selection.size) this.selectObjects([])
+  }
+
+  finishDocumentInput(): void {
+    this.blur()
+    if (!this.completedGestures.length) return
+    if (this.frameRequest !== undefined) cancelAnimationFrame(this.frameRequest)
+    this.drawFrame()
+  }
+
+  setDocumentChangePending(pending: boolean): void {
+    this.documentChangePending = pending
+    if (pending) this.finishDocumentInput()
+  }
+
+  clearDocumentInput(): void {
+    this.clipboard = []
+    this.polygon = undefined
+    this.clearSelection()
+    this.refreshLive()
   }
 
   selectAll(): void {
@@ -645,6 +665,7 @@ export class BoardController {
   }
 
   private pointerDown = (event: PointerEvent): void => {
+    if (this.documentChangePending) return
     window.getSelection()?.removeAllRanges()
     if (event.button === pointerButtons.middle) {
       event.preventDefault()
@@ -905,6 +926,7 @@ export class BoardController {
   }
 
   private keyDown = (event: KeyboardEvent): void => {
+    if (this.documentChangePending) return
     const action = findShortcut(event, 'controller')
     if (!action) return
     const target = event.target

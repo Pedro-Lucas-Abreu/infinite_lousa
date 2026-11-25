@@ -4,9 +4,11 @@ declare const __DOCUMENT_WORKER__: string;
 
 const BOARD_MIME = "application/zip";
 const MAX_FILE_SIZE = 128 * 1024 * 1024;
-const types = [{ description: "Lousa", accept: { [BOARD_MIME]: [".board"] } }];
+type FileTypes = { description: string; accept: Record<string, string[]> }[];
+const types: FileTypes = [{ description: "Lousa", accept: { [BOARD_MIME]: [".board"] } }];
+const pdfTypes: FileTypes = [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }];
 
-interface ReadHandle {
+interface ReadHandle extends WriteHandle {
   name: string;
   getFile(): Promise<File>;
 }
@@ -29,11 +31,19 @@ type Request = { action: "decode"; bytes: Uint8Array } | { action: "encode"; boa
 type WorkerResponse<T> = { ok: true; value: T } | { ok: false; message: string };
 
 export type OpenBoardResult =
-  | { kind: "opened"; board: PortableBoard; filename: string }
+  | { kind: "opened"; board: PortableBoard; file: BoardFileLink }
   | { kind: "upload" }
   | { kind: "cancelled" };
 
-export type SaveBoardResult = { kind: "saved" | "downloaded"; filename: string } | { kind: "cancelled" };
+export interface BoardFileLink {
+  readonly name: string;
+  readonly handle?: WriteHandle;
+}
+
+export type SaveFileResult =
+  | { kind: "saved"; file: BoardFileLink }
+  | { kind: "downloaded"; filename: string }
+  | { kind: "cancelled" };
 
 function useArchiveWorker<T>(request: Request, transfers: Transferable[] = []): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -105,7 +115,7 @@ export async function openBoardFile(fallbackInput: HTMLInputElement): Promise<Op
   const handle = handles[0];
   if (!handle) return { kind: "cancelled" };
   const board = await decodeFromFile(await handle.getFile());
-  return { kind: "opened", board, filename: handle.name };
+  return { kind: "opened", board, file: { name: handle.name, handle } };
 }
 
 async function archiveBlob(board: PortableBoard): Promise<Blob> {
@@ -113,35 +123,41 @@ async function archiveBlob(board: PortableBoard): Promise<Blob> {
   return new Blob([bytes as Uint8Array<ArrayBuffer>], { type: BOARD_MIME });
 }
 
-export async function saveBoardFile(
-  board: PortableBoard,
-  suggestedName = "lousa.board",
-  forceDownload = false,
-): Promise<SaveBoardResult> {
+async function saveFile(
+  makeBlob: () => Promise<Blob>,
+  suggestedName: string,
+  acceptedTypes: typeof types,
+  forceDownload: boolean,
+  linked?: WriteHandle,
+): Promise<SaveFileResult> {
   const picker = window as PickerWindow;
-  let handle: WriteHandle | undefined;
-  if (!forceDownload && picker.showSaveFilePicker) {
+  let handle = forceDownload ? undefined : linked;
+  if (!forceDownload && !handle && picker.showSaveFilePicker) {
     try {
-      handle = await picker.showSaveFilePicker({ types, suggestedName });
+      handle = await picker.showSaveFilePicker({ types: acceptedTypes, suggestedName });
     } catch (error) {
       if (cancelled(error)) return { kind: "cancelled" };
       if (!pickerUnavailable(error)) throw error;
     }
   }
   if (handle) {
-    const blob = await archiveBlob(board);
-    const stream = await handle.createWritable();
     try {
-      await stream.write(blob);
-      await stream.close();
+      const stream = await handle.createWritable();
+      try {
+        await stream.write(await makeBlob());
+        await stream.close();
+      } catch (error) {
+        await stream.abort().catch(() => undefined);
+        throw error;
+      }
     } catch (error) {
-      await stream.abort().catch(() => undefined);
+      if (cancelled(error)) return { kind: "cancelled" };
       throw error;
     }
-    return { kind: "saved", filename: handle.name };
+    return { kind: "saved", file: { name: handle.name, handle } };
   }
 
-  const url = URL.createObjectURL(await archiveBlob(board));
+  const url = URL.createObjectURL(await makeBlob());
   const anchor = document.createElement("a");
   anchor.download = suggestedName;
   anchor.href = url;
@@ -153,4 +169,12 @@ export async function saveBoardFile(
     window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
   }
   return { kind: "downloaded", filename: suggestedName };
+}
+
+export function saveBoardFile(board: PortableBoard, file: BoardFileLink | null, forceDownload = false): Promise<SaveFileResult> {
+  return saveFile(() => archiveBlob(board), file?.name || "lousa.board", types, forceDownload, file?.handle);
+}
+
+export function savePdfFile(makeBlob: () => Promise<Blob>): Promise<SaveFileResult> {
+  return saveFile(makeBlob, "lousa.pdf", pdfTypes, false);
 }
