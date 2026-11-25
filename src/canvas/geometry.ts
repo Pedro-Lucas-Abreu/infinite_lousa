@@ -1,5 +1,6 @@
 import { strokeOutline } from '../core/stroke'
-import type { Affine, BoardObject, Bounds, Point, ShapeObject, Stroke } from '../core/types'
+import type { Affine, BoardObject, Bounds, InstrumentObject, Point, ShapeObject, Stroke } from '../core/types'
+import { getInstrumentGeometry } from '../instruments/geometry'
 import { hitContours, type ShapeContour } from './shapes'
 
 const outlines = new WeakMap<BoardObject, readonly Point[]>()
@@ -87,6 +88,12 @@ function touchesOutline(start: Point, end: Point, polygon: readonly Point[], rad
   return polygon.some((a, i) => nearSegment(start, end, a, polygon[(i + 1) % polygon.length]!, radius))
 }
 
+function instrumentBodies(object: InstrumentObject): readonly (readonly Point[])[] {
+  const { kind, width, height } = object.props
+  return getInstrumentGeometry(kind, width, height).paths.filter(({ fill }) => fill)
+    .map(({ points }) => points.map((point) => transformPoint(object.transform, point)))
+}
+
 function worldShapeContours(object: ShapeObject): readonly ShapeContour[] {
   const cached = shapeOutlines.get(object)
   if (cached) return cached
@@ -111,6 +118,9 @@ export function hitObject(object: BoardObject, point: Point, radius: number): bo
   if (object.type === 'shape') {
     return worldShapeContours(object).some((contour) => touchesContour(point, point, contour, radius + shapeRadius(object)))
   }
+  if (object.type === 'instrument') {
+    return instrumentBodies(object).some((body) => pointInside(point, body) || touchesOutline(point, point, body, radius))
+  }
   const polygon = outline(object)
   return (object.type !== 'frame' && pointInside(point, polygon)) || touchesOutline(point, point, polygon, radius)
 }
@@ -125,6 +135,11 @@ export function regionIntersects(object: BoardObject, region: readonly Point[]):
     const radius = shapeRadius(object)
     return worldShapeContours(object).some((contour) => contour.points.some((point) => pointInside(point, region)) ||
       region.some((a, index) => touchesContour(a, region[(index + 1) % region.length]!, contour, radius)))
+  }
+  if (object.type === 'instrument') {
+    return instrumentBodies(object).some((body) => body.some((point) => pointInside(point, region)) ||
+      (region[0] !== undefined && pointInside(region[0], body)) ||
+      region.some((point, index) => touchesOutline(point, region[(index + 1) % region.length]!, body, 0)))
   }
   const polygon = outline(object)
   const start = polygon[0], regionStart = region[0]

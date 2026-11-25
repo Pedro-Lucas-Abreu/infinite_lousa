@@ -1,11 +1,13 @@
 import {
-  drawEquationObject, drawPlotObject, drawShape, drawTextObject, PLOT_GRID_OPACITY, PLOT_GRID_WIDTH_RATIO, TEXT_LINE_HEIGHT,
+  drawEquationObject, drawInstrument, drawPlotObject, drawShape, drawTextObject, instrumentLineWidth, instrumentPaint,
+  INSTRUMENT_BODY_OPACITY, PLOT_GRID_OPACITY, PLOT_GRID_WIDTH_RATIO, TEXT_LINE_HEIGHT,
 } from "../canvas/drawings";
 import { objectBounds, Scene } from "../core/scene";
-import { shapeArrowHead } from "../core/shapes";
+import { shapeArcSegments, shapeArrowHead } from "../core/shapes";
 import { strokeOutline } from "../core/stroke";
-import type { Affine, Bounds, EquationObject, FrameObject, PageObject, PlotObject, Point, ShapeObject, Stroke, TextObject } from "../core/types";
+import type { Affine, Bounds, EquationObject, FrameObject, InstrumentObject, PageObject, PlotObject, Point, ShapeObject, Stroke, TextObject } from "../core/types";
 import type { BoardAsset, PortableBoard } from "../documents/archive";
+import { getInstrumentGeometry, type InstrumentLabel } from "../instruments/geometry";
 import type { PDFDict, PDFDocument, PDFFont, PDFImage, PDFPage } from "@cantoo/pdf-lib";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { getPlotGeometry, type PlotLine } from "../plot/geometry";
@@ -17,6 +19,7 @@ export interface ExportOptions {
   readonly frameId?: string;
   readonly background?: string;
   readonly scale?: number;
+  readonly includeInstruments?: boolean;
 }
 
 const MAX_PDF_EDGE = 14_400;
@@ -57,6 +60,20 @@ function exportRegions(scene: Scene, options: ExportOptions): Bounds[] {
   if (!content.length) throw new Error("A lousa está vazia.");
   const bounds = new Scene(content).bounds()!;
   return [bounds];
+}
+
+function exportScene(board: PortableBoard, options: ExportOptions): Scene {
+  return new Scene(options.includeInstruments ? board.scene.objects :
+    board.scene.objects.filter((object) => object.type !== "instrument"));
+}
+
+function* exportedObjects(scene: Scene, region: Bounds) {
+  const instruments: InstrumentObject[] = [];
+  for (const object of scene.search(region)) {
+    if (object.type === "instrument") instruments.push(object);
+    else if (object.type !== "frame") yield object;
+  }
+  yield* instruments;
 }
 
 function dimensions(region: Bounds) {
@@ -116,7 +133,7 @@ function paintStroke(context: CanvasRenderingContext2D, stroke: Stroke, backgrou
 }
 
 export async function exportPng(board: PortableBoard, options: ExportOptions = {}): Promise<Blob> {
-  const scene = new Scene(board.scene.objects);
+  const scene = exportScene(board, options);
   const [region] = exportRegions(scene, options);
   const { width, height } = dimensions(region);
   const requestedScale = options.scale ?? 2;
@@ -132,8 +149,7 @@ export async function exportPng(board: PortableBoard, options: ExportOptions = {
   const assets = new Map(board.assets.map((asset) => [asset.id, asset]));
   const sources = new Map<string, Promise<PDFDocumentProxy>>();
   try {
-    for (const object of scene.search(region)) {
-      if (object.type === "frame") continue;
+    for (const object of exportedObjects(scene, region)) {
       context.save();
       context.transform(...object.transform);
       if (object.type === "stroke") paintStroke(context, object, options.background);
@@ -141,6 +157,7 @@ export async function exportPng(board: PortableBoard, options: ExportOptions = {
       else if (object.type === "text") drawTextObject(context, object, contrastColor(object.props.color, options.background, object.parentId));
       else if (object.type === "equation") drawEquationObject(context, object, contrastColor(object.props.color, options.background, object.parentId));
       else if (object.type === "plot") drawPlotObject(context, object, (color) => contrastColor(color, options.background, object.parentId));
+      else if (object.type === "instrument") drawInstrument(context, object, options.background === "#171e2d");
       else {
         const [a, b, c, d] = object.transform;
         const edge = Math.ceil(Math.max(object.props.width * Math.hypot(a, b), object.props.height * Math.hypot(c, d)) * scale);
@@ -208,7 +225,7 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
   const pdf = await import("@cantoo/pdf-lib");
   const { embedOriginalPage } = await import("./source");
   const output = await pdf.PDFDocument.create();
-  const scene = new Scene(board.scene.objects);
+  const scene = exportScene(board, options);
   const assets = new Map(board.assets.map((asset) => [asset.id, asset]));
   const sourceDocuments = new Map<string, Promise<PDFDocument>>();
   const renders = new Map<string, Promise<PDFDocumentProxy>>();
@@ -272,6 +289,11 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
     } else if (kind === "polygon") {
       trace(page, points);
       page.pushOperators(pdf.closePath());
+    } else if (kind === "arc") {
+      page.pushOperators(pdf.moveTo(start.x, start.y));
+      for (const [, a, b, end] of shapeArcSegments(points)) {
+        page.pushOperators(pdf.appendBezierCurve(a.x, a.y, b.x, b.y, end.x, end.y));
+      }
     } else {
       trace(page, [start, end]);
       if (kind === "arrow") trace(page, shapeArrowHead(start, end, size));
@@ -313,6 +335,19 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
     }
   }
 
+  async function drawVectorLabels(page: PDFPage, labels: readonly InstrumentLabel[], ink: ReturnType<typeof colorComponents>): Promise<void> {
+    if (!labels.length) return;
+    const font = textFont ??= await output.embedFont(pdf.StandardFonts.Helvetica);
+    const color = pdf.rgb(...ink);
+    // Positions use Y-down coordinates, but PDF glyphs need a Y-up text transform.
+    page.pushOperators(pdf.concatTransformationMatrix(1, 0, 0, -1, 0, 0));
+    for (const { text, x, y, align, size } of labels) {
+      const extent = font.widthOfTextAtSize(text, size);
+      const offset = align === "center" ? extent / 2 : align === "right" ? extent : 0;
+      page.drawText(text, { font, size, color, x: x - offset, y: -y });
+    }
+  }
+
   async function vectorPlot(page: PDFPage, object: PlotObject): Promise<void> {
     const { width, height, color, size, settings, functions } = object.props;
     const { grid, axes, labels, curves, fontSize } = getPlotGeometry(settings, width, height, functions);
@@ -342,16 +377,32 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
       page.pushOperators(pdf.stroke());
     }
 
-    if (!labels.length) return;
-    const font = textFont ??= await output.embedFont(pdf.StandardFonts.Helvetica);
-    const labelColor = pdf.rgb(...ink);
-    // Plot positions use Y-down coordinates, but PDF glyphs need a Y-up text transform.
-    page.pushOperators(pdf.concatTransformationMatrix(1, 0, 0, -1, 0, 0));
-    for (const { text, x, y, align } of labels) {
-      const extent = font.widthOfTextAtSize(text, fontSize);
-      const offset = align === "center" ? extent / 2 : align === "right" ? extent : 0;
-      page.drawText(text, { font, size: fontSize, color: labelColor, x: x - offset, y: -y });
+    await drawVectorLabels(page, labels.map((label) => ({ ...label, size: fontSize })), ink);
+  }
+
+  async function vectorInstrument(page: PDFPage, object: InstrumentObject): Promise<void> {
+    const { kind, width, height } = object.props;
+    const { paths, labels } = getInstrumentGeometry(kind, width, height);
+    const paint = instrumentPaint(options.background === "#171e2d");
+    const ink = colorComponents(paint.ink);
+    const body = colorComponents(paint.body);
+    const opacity = extStates.get(INSTRUMENT_BODY_OPACITY) ??
+      output.context.obj({ Type: "ExtGState", ca: INSTRUMENT_BODY_OPACITY });
+    extStates.set(INSTRUMENT_BODY_OPACITY, opacity);
+    const fillOpacity = page.node.newExtGState("InstrumentBodyOpacity", opacity);
+    page.pushOperators(pdf.setStrokingRgbColor(...ink), pdf.setLineCap(pdf.LineCapStyle.Round),
+      pdf.setLineJoin(pdf.LineJoinStyle.Round));
+    for (const { points, fill, weight, closed } of paths) {
+      if (fill) {
+        page.pushOperators(pdf.pushGraphicsState(), pdf.setGraphicsState(fillOpacity), pdf.setFillingRgbColor(...body));
+      }
+      page.pushOperators(pdf.setLineWidth(instrumentLineWidth(weight)));
+      trace(page, points);
+      if (closed) page.pushOperators(pdf.closePath());
+      page.pushOperators(fill ? pdf.fillAndStroke() : pdf.stroke());
+      if (fill) page.pushOperators(pdf.popGraphicsState());
     }
+    await drawVectorLabels(page, labels, ink);
   }
 
   async function embedPageOrImage(object: PageObject): Promise<OriginalPage | PDFImage> {
@@ -388,14 +439,14 @@ export async function exportPdf(board: PortableBoard, options: ExportOptions = {
       page.pushOperators(pdf.pushGraphicsState(), pdf.rectangle(0, 0, width * scale, height * scale), pdf.clip(), pdf.endPath());
       fillRectangle(page, width * scale, height * scale, colorComponents(options.background ?? "#ffffff"));
       page.pushOperators(pdf.concatTransformationMatrix(scale, 0, 0, -scale, -region.minX * scale, region.maxY * scale));
-      for (const object of scene.search(region)) {
-        if (object.type === "frame") continue;
+      for (const object of exportedObjects(scene, region)) {
         pushTransform(page, object.transform);
         if (object.type === "stroke") vectorInk(page, object);
         else if (object.type === "shape") vectorShape(page, object);
         else if (object.type === "text") await drawPdfText(page, object);
         else if (object.type === "equation") vectorEquation(page, object);
         else if (object.type === "plot") await vectorPlot(page, object);
+        else if (object.type === "instrument") await vectorInstrument(page, object);
         else {
           const { width, height, assetId, pageIndex } = object.props;
           const key = `${assetId}/${object.type === "pdfPage" ? pageIndex ?? 0 : "image"}`;

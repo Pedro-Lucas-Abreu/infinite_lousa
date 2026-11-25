@@ -152,6 +152,15 @@ export const shortcuts = [
   board('laser', 'Lousa', 'Ligar ou desligar laser', plain('k', true)),
   board('spotlight', 'Lousa', 'Ligar ou desligar spotlight', plain('s', true)),
   board('new-plot', 'Ferramentas', 'Inserir plano cartesiano', plain('F2', true)),
+  board('insert-ruler', 'Ferramentas', 'Régua', { ...alt('1'), single: true }),
+  board('insert-set-square-45', 'Ferramentas', 'Esquadro de 45°', { ...alt('2'), single: true }),
+  board('insert-set-square-30', 'Ferramentas', 'Esquadro de 30°–60°', { ...alt('3'), single: true }),
+  board('insert-protractor', 'Ferramentas', 'Transferidor', { ...alt('4'), single: true }),
+  entry('tool-compass', 'board', 'Ferramentas', 'Compasso — círculo', [{ ...alt('5'), single: true }],
+    ['Arraste do centro até a borda']),
+  entry('tool-compass-arc', 'board', 'Ferramentas', 'Compasso — arco', [{ ...alt('6'), single: true }],
+    ['Arraste para definir o raio e de novo para abrir o arco']),
+  board('toggle-pdf-instruments', 'PDF e quadros', 'Alternar inclusão dos instrumentos no PDF', { ...alt('7'), single: true }),
   board('escape', 'Lousa', 'Limpar seleção, cancelar quadro ou sair de modo temporário', plain('Escape')),
   entry('edit-text', 'controller', 'Edição', 'Editar texto com seleção ou laço', [], ['Duplo clique'],
     [{ gesture: 'edit', button: primary }]),
@@ -178,8 +187,10 @@ export type ShortcutId = typeof shortcuts[number]['id']
 
 const byId = new Map<string, Shortcut>(shortcuts.map((shortcut) => [shortcut.id, shortcut]))
 
-export function shortcutLabel(id: string): string {
-  return byId.get(id)?.keys.join(' / ') ?? ''
+export function shortcutLabel(id: string, keysOnly = false): string {
+  const shortcut = byId.get(id)
+  const keys = keysOnly ? shortcut?.bindings.filter(({ hidden }) => !hidden).map(formatKey) : shortcut?.keys
+  return keys?.join(' / ') ?? ''
 }
 
 export function shortcutAction(id: string): string {

@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Zip, ZipDeflate, zipSync } from "fflate";
 import { Scene, objectBounds } from "../core/scene";
+import { shapeArcPoints } from "../core/shapes";
 import { createStroke } from "../core/stroke";
-import type { Brush, EquationObject, FrameObject, PageObject, PlotObject, ShapeObject, Stroke, TextObject } from "../core/types";
+import type { Brush, EquationObject, FrameObject, InstrumentObject, PageObject, PlotObject, ShapeObject, Stroke, TextObject } from "../core/types";
+import { instrumentDimensions } from "../instruments/geometry";
 import { DEFAULT_PLOT_SETTINGS } from "../plot/geometry";
 import { alignPlotAxes } from "../plot/object";
 import { type PortableBoard, readArchive, writeArchive } from "./archive";
@@ -49,6 +51,23 @@ describe("portable .board", () => {
   it("round-trips local geometry and original asset bytes", () => {
     assert.deepEqual(readArchive(writeArchive(fixture)), fixture);
     assert.deepEqual(readArchive(zipSync(entries(), { level: 0 })), fixture);
+  });
+
+  it("round-trips transformed geometry instruments and open compass arcs in v1", () => {
+    const instrument: InstrumentObject = {
+      id: "ruler", type: "instrument", zIndex: 3, locked: false, transform: [0, 1, -1, 0, 120, 180],
+      props: { kind: "ruler", ...instrumentDimensions("ruler") },
+    };
+    const arc: ShapeObject = {
+      id: "arc", type: "shape", zIndex: 4, locked: false, transform: [1, 0, 0, 1, 0, 0],
+      props: { kind: "arc", points: shapeArcPoints({ x: 100, y: 100 }, 40, 0, Math.PI), size: 2, color: "#192038" },
+    };
+    const board: PortableBoard = { scene: { version: 1, objects: [instrument, arc] }, assets: [] };
+    assert.deepEqual(readArchive(writeArchive(board)), board);
+    assert.throws(() => writeArchive({
+      ...board,
+      scene: { version: 1, objects: [instrument, { ...arc, props: { ...arc.props, points: arc.props.points.slice(0, 3) } }] },
+    }), /Invalid shape geometry/);
   });
 
   it("round-trips editable plots in v1 and rejects invalid scales or expressions", () => {

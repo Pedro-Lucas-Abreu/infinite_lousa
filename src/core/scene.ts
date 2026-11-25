@@ -58,7 +58,7 @@ function shapeBounds(object: ShapeObject): Bounds {
     const y = Math.min(start.y, end.y);
     bounds = rectangleBounds(object.transform, x, y, Math.abs(end.x - start.x), Math.abs(end.y - start.y));
   } else {
-    const vertices = kind === "polygon" ? points :
+    const vertices = kind === "polygon" || kind === "arc" ? points :
       kind === "arrow" ? [start, end, ...shapeArrowHead(start, end, size)] : [start, end];
     bounds = pointBounds(vertices, object.transform);
   }
@@ -81,6 +81,10 @@ export function objectBounds(object: BoardObject): Bounds {
   const { width, height } = object.props;
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     throw new RangeError("Rectangular objects need finite positive dimensions.");
+  }
+  if (object.type === "instrument") {
+    const margin = 1; // Keep the instrument's outline inside the culling and export bounds.
+    return rectangleBounds(object.transform, -margin, -margin, width + 2 * margin, height + 2 * margin);
   }
   return rectangleBounds(object.transform, 0, 0, width, height);
 }

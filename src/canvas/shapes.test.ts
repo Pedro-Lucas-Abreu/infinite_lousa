@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { objectBounds } from '../core/scene'
+import { shapeArcPoints, shapeArcSegments } from '../core/shapes'
 import type { ShapeObject } from '../core/types'
 import { appendVertex, dragShapePoints, hitContours, isDrawableShape } from './shapes'
 
@@ -35,4 +37,21 @@ test('arrow hit contour keeps the head open and separate from the shaft', () => 
   assert.deepEqual(shaft, { points: shape.props.points, closed: false })
   assert.equal(head!.closed, false)
   assert.deepEqual(head!.points, [{ x: 80, y: 10 }, { x: 100, y: 0 }, { x: 80, y: -10 }])
+})
+
+test('compass arcs share cubic controls and have an open hit contour along the curve', () => {
+  const points = shapeArcPoints({ x: 10, y: 20 }, 40, 0, -Math.PI)
+  assert.equal([...shapeArcSegments(points)].length, 2)
+  assert.deepEqual(points[0], { x: 50, y: 20 })
+  assert.ok(Math.abs(points.at(-1)!.x + 30) < 1e-9)
+  assert.ok(Math.abs(points.at(-1)!.y - 20) < 1e-9)
+  const shape: ShapeObject = {
+    id: 'arc', type: 'shape', transform: [1, 0, 0, 1, 100, 0], zIndex: 0, locked: false,
+    props: { kind: 'arc', color: '#192038', size: 2, points },
+  }
+  const [contour] = hitContours(shape)
+  assert.equal(contour!.closed, false)
+  assert.ok(contour!.points.some(({ x, y }) => Math.abs(x - 10) < 1e-9 && Math.abs(y + 20) < 1e-9))
+  assert.ok(objectBounds(shape).minY <= -21)
+  assert.deepEqual(shapeArcPoints({ x: 0, y: 0 }, 40, 0, 0), [])
 })

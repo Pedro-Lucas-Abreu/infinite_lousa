@@ -181,6 +181,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-vi
 .tool-settings-body input { width: 56px; }
 .shape-choices button { flex-direction: row; justify-content: flex-start; gap: 8px; }
 .shape-choices small { margin-left: auto; color: var(--muted); }
+.instruments-menu .tool-settings-body { min-width: 228px; }
+.file-actions .pdf-instruments-option { padding: 4px 8px; }
+.compass-instructions { flex: 1 1 16rem; margin: 0; font-size: .875rem; }
 .board-text-editor {
   position: absolute;
   z-index: 1;

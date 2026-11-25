@@ -1,10 +1,15 @@
-import { shapeArrowHead } from "../core/shapes";
-import type { EquationObject, PlotObject, ShapeObject, TextObject } from "../core/types";
+import { shapeArcSegments, shapeArrowHead } from "../core/shapes";
+import type { EquationObject, InstrumentObject, PlotObject, ShapeObject, TextObject } from "../core/types";
+import { getInstrumentGeometry } from "../instruments/geometry";
 import { getPlotGeometry, type PlotLine } from "../plot/geometry";
 
 export const TEXT_LINE_HEIGHT = 1.25;
 export const PLOT_GRID_OPACITY = 0.28;
 export const PLOT_GRID_WIDTH_RATIO = 0.55;
+export const INSTRUMENT_BODY_OPACITY = 0.55;
+export const instrumentPaint = (dark: boolean) => dark
+  ? { ink: "#b7d8ff", body: "#244975" } : { ink: "#244a76", body: "#bcd9fd" };
+export const instrumentLineWidth = (weight: "minor" | "major" | undefined) => weight === "minor" ? 0.75 : 1.35;
 const equationPaths = new WeakMap<EquationObject["props"]["paths"], readonly Path2D[]>();
 
 function shapePath(shape: ShapeObject): Path2D {
@@ -27,6 +32,8 @@ function shapePath(shape: ShapeObject): Path2D {
     if (kind === "polygon") {
       for (const point of points.slice(1)) path.lineTo(point.x, point.y);
       path.closePath();
+    } else if (kind === "arc") {
+      for (const [, a, b, end] of shapeArcSegments(points)) path.bezierCurveTo(a.x, a.y, b.x, b.y, end.x, end.y);
     } else {
       path.lineTo(end.x, end.y);
     }
@@ -118,6 +125,40 @@ export function drawPlotObject(context: CanvasRenderingContext2D, object: PlotOb
   context.font = `${fontSize}px Arial, sans-serif`;
   context.textBaseline = "alphabetic";
   for (const { text, x, y, align } of labels) {
+    context.textAlign = align;
+    context.fillText(text, x, y);
+  }
+  context.restore();
+}
+
+export function drawInstrument(context: CanvasRenderingContext2D, object: InstrumentObject, dark: boolean): void {
+  const { kind, width, height } = object.props;
+  const { paths, labels } = getInstrumentGeometry(kind, width, height);
+  const { ink, body } = instrumentPaint(dark);
+  context.save();
+  context.strokeStyle = ink;
+  context.fillStyle = body;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  for (const { points, closed, fill, weight } of paths) {
+    const [first, ...rest] = points;
+    if (!first) continue;
+    const path = new Path2D();
+    path.moveTo(first.x, first.y);
+    for (const point of rest) path.lineTo(point.x, point.y);
+    if (closed) path.closePath();
+    if (fill) {
+      context.globalAlpha = INSTRUMENT_BODY_OPACITY;
+      context.fill(path);
+      context.globalAlpha = 1;
+    }
+    context.lineWidth = instrumentLineWidth(weight);
+    context.stroke(path);
+  }
+  context.fillStyle = ink;
+  context.textBaseline = "alphabetic";
+  for (const { text, x, y, align, size } of labels) {
+    context.font = `${size}px Arial, sans-serif`;
     context.textAlign = align;
     context.fillText(text, x, y);
   }

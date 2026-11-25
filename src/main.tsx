@@ -5,7 +5,7 @@ import { BoardController } from './canvas/controller'
 import type { BoardTool, BrushStyle } from './canvas/controller'
 import { screenToWorld } from './core/camera'
 import { objectBounds, Scene } from './core/scene'
-import type { Affine, BoardChange, BoardObject, EquationObject, EquationPath, FrameObject, PageObject, PlotObject, Point, TextObject } from './core/types'
+import type { Affine, BoardChange, BoardObject, EquationObject, EquationPath, FrameObject, InstrumentObject, PageObject, PlotObject, Point, TextObject } from './core/types'
 import { BoardDocument } from './documents/store'
 import { decodeFromFile, openBoardFile, saveBoardFile } from './documents/files'
 import { registerPwa } from './pwa/register'
@@ -18,7 +18,7 @@ import { PdfPagePreviews } from './pdf/preview'
 import { exportPdf, exportPng } from './pdf/export'
 import { ImagePreviews, importImage } from './ui/assets'
 import { fitCamera, framesForPages } from './ui/frames'
-import { backgrounds, initialFavorites, shapeTools, tools, Tools } from './ui/tools'
+import { backgrounds, compassTools, initialFavorites, shapeTools, tools, Tools } from './ui/tools'
 import { TextEditor } from './ui/text-editor'
 import { EquationEditor } from './ui/equation-editor'
 import { PlotEditor } from './ui/plot-editor'
@@ -26,6 +26,7 @@ import { ShortcutsPanel } from './ui/shortcuts-panel'
 import { findShortcut, shortcutAria, shortcutLabel } from './shortcuts'
 import { DEFAULT_PLOT_SETTINGS } from './plot/geometry'
 import { alignPlotAxes } from './plot/object'
+import { instrumentDimensions, type InstrumentKind } from './instruments/geometry'
 import { textBoxDimensions } from './ui/text'
 import type { Background, Dock } from './ui/tools'
 import './styles.css'
@@ -38,6 +39,7 @@ interface BoardSettings {
   background: Background
   favorite: number
   favorites: readonly BrushStyle[]
+  exportInstruments: boolean
 }
 
 interface TextDraft {
@@ -74,6 +76,7 @@ const useSettings = create<BoardSettings>(() => ({
   background: 'white',
   favorite: 0,
   favorites: initialFavorites,
+  exportInstruments: false,
 }))
 
 function pickFavorite(index: number) {
@@ -131,6 +134,7 @@ function Board() {
   const [textDraft, setTextDraft] = useState<TextDraft | null>(null)
   const [equationDraft, setEquationDraft] = useState<EquationDraft | null>(null)
   const [plotDraft, setPlotDraft] = useState<PlotDraft | null>(null)
+  const [compassStep, setCompassStep] = useState<'radius' | 'sweep'>('radius')
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [presenting, setPresenting] = useState(false)
   const [showPresentationBar, setShowPresentationBar] = useState(false)
@@ -142,7 +146,11 @@ function Board() {
   const [history, setHistory] = useState({ undo: false, redo: false })
   const [pwaState, setPwaState] = useState<PwaState>({ offline: 'loading', canInstall: false, updateAvailable: false })
   const [zoom, setZoom] = useState(1)
-  const { tool, stabilizer, zoomRequiresCtrl, dock, background, favorite, favorites } = useSettings()
+  const { tool, stabilizer, zoomRequiresCtrl, dock, background, favorite, favorites, exportInstruments } = useSettings()
+  const compassInstructions = tool === 'compass' ? 'Arraste do centro até a borda para desenhar o círculo.'
+    : tool === 'compass-arc' ? (compassStep === 'radius'
+      ? 'Arraste do centro até o ponto inicial do arco.'
+      : 'Arraste a partir da ponta do compasso para abrir o arco. Esc cancela.') : ''
 
   function showShortcuts(open: boolean) {
     shortcutsOpenRef.current = open
@@ -259,6 +267,28 @@ function Board() {
     updatePointerEffect(null)
     useSettings.setState({ tool: next })
     if (next === 'equation') controller.current?.startEquation()
+  }
+
+  function insertInstrument(kind: Exclude<InstrumentKind, 'compass'>) {
+    const board = controller.current
+    const scene = sceneRef.current
+    if (!board || !scene || !documentRef.current || fileOperation.current ||
+      textDraftRef.current || equationDraftRef.current || plotDraftRef.current) return
+
+    const viewport = board.getViewport()
+    const camera = board.getCamera()
+    const { width, height } = instrumentDimensions(kind)
+    const scale = Math.min(1, 0.8 * viewport.width / width, 0.8 * viewport.height / height) / camera.zoom
+    if (!Number.isFinite(scale) || scale <= 0) return
+    const instrument: InstrumentObject = {
+      id: crypto.randomUUID(), type: 'instrument', locked: false, zIndex: scene.nextZIndex(),
+      transform: [scale, 0, 0, scale, camera.x - width * scale / 2, camera.y - height * scale / 2],
+      props: { kind, width, height },
+    }
+    applyChanges([{ after: instrument }])
+    board.clearSelection()
+    chooseTool('select')
+    liveCanvas.current?.focus({ preventScroll: true })
   }
 
   function setPresentation(enabled: boolean) {
@@ -526,7 +556,9 @@ function Board() {
         download(await exportPng(portable, { frameId: id, background }), 'quadro.png')
         setMessage('PNG do quadro exportado.')
       } else {
-        const { bytes, fallbackPages, fallbackTexts } = await exportPdf(portable, { scope: mode, background })
+        const { bytes, fallbackPages, fallbackTexts } = await exportPdf(portable, {
+          scope: mode, background, includeInstruments: useSettings.getState().exportInstruments,
+        })
         download(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }), 'lousa.pdf')
         const notes = [fallbackPages ? `Páginas em imagem de alta resolução: ${fallbackPages}.` : '',
           fallbackTexts ? `Objetos de texto em imagem por caracteres incompatíveis: ${fallbackTexts}.` : ''].filter(Boolean)
@@ -565,6 +597,7 @@ function Board() {
       onTextEdit: openTextEditor,
       onEquationEdit: openEquationEditor,
       onPlotEdit: openPlotEditor,
+      onCompassStepChange: setCompassStep,
       getPageRaster: (page) => {
         const asset = documentRef.current?.asset(page.props.assetId)
         if (!asset) return undefined
@@ -620,7 +653,7 @@ function Board() {
 
       const action = findShortcut(event, 'board')
       if (!action) return
-      const toolShortcut = [...tools, ...shapeTools].find(({ id }) => action === `tool-${id}`)
+      const toolShortcut = [...tools, ...shapeTools, ...compassTools].find(({ id }) => action === `tool-${id}`)
       if (toolShortcut) {
         chooseTool(toolShortcut.id)
         event.preventDefault()
@@ -694,6 +727,11 @@ function Board() {
         case 'zoom-reset': board.setCamera({ x: 0, y: 0, zoom: 1 }); break
         case 'open-shortcuts': showShortcuts(true); break
         case 'new-plot': openPlotEditor(); break
+        case 'insert-ruler': insertInstrument('ruler'); break
+        case 'insert-set-square-45': insertInstrument('set-square-45'); break
+        case 'insert-set-square-30': insertInstrument('set-square-30'); break
+        case 'insert-protractor': insertInstrument('protractor'); break
+        case 'toggle-pdf-instruments': useSettings.setState(({ exportInstruments }) => ({ exportInstruments: !exportInstruments })); break
         default: return
       }
       event.preventDefault()
@@ -791,6 +829,11 @@ function Board() {
             <button type="button" disabled={fileBusy || !frames.length} onClick={() => exportBoard('frames')} title={shortcutLabel('pdf-frames')}>Exportar quadros em PDF</button>
             <button type="button" disabled={fileBusy || !isReady} onClick={() => exportBoard('all')} title={shortcutLabel('pdf-all')}>Exportar tudo em PDF</button>
             <button type="button" disabled={fileBusy || !activeFrame} onClick={() => exportBoard('png')} title={shortcutLabel('png')}>Exportar quadro em PNG</button>
+            <label className="check-option pdf-instruments-option" title={shortcutLabel('toggle-pdf-instruments')}>
+              <input type="checkbox" checked={exportInstruments} aria-keyshortcuts={shortcutAria('toggle-pdf-instruments')}
+                onChange={(event) => useSettings.setState({ exportInstruments: event.target.checked })} />
+              Incluir instrumentos no PDF
+            </label>
             <hr />
             <button type="button" aria-haspopup="dialog" aria-keyshortcuts={shortcutAria('open-shortcuts')}
               title={shortcutLabel('open-shortcuts')} onClick={() => showShortcuts(true)}>Atalhos</button>
@@ -863,7 +906,8 @@ function Board() {
       <div className={`workspace dock-${dock}`}>
         <Tools dock={dock} tool={tool} favorite={favorite} favorites={favorites}
           onDock={(position) => useSettings.setState({ dock: position })}
-          onTool={chooseTool} onPlot={() => openPlotEditor()} onFavorite={pickFavorite} onEditFavorite={editFavorite} />
+          onTool={chooseTool} onPlot={() => openPlotEditor()} onInstrument={insertInstrument}
+          onFavorite={pickFavorite} onEditFavorite={editFavorite} />
         <section className="surface" aria-label="Área de desenho" aria-busy={!isReady || fileBusy}
           onDragOver={(event) => {
             if (!event.dataTransfer.types.includes('Files')) return
@@ -898,6 +942,7 @@ function Board() {
           {message || ({ saved: 'Salvo neste navegador', saving: 'Salvando…',
             error: 'Falha ao salvar no navegador. Baixe uma cópia.', recovering: 'Abrindo a lousa…' })[saveStatus]}
         </div>
+        {compassInstructions && <p className="compass-instructions" aria-live="polite">{compassInstructions}</p>}
         <div className="pwa-group" data-offline={pwaState.offline}>
           {pwaState.offline === 'ready' && <span>Pronto offline</span>}
           {pwaState.canInstall && <button type="button" onClick={() => {

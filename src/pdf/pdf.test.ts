@@ -5,9 +5,11 @@ import {
   decodePDFRawStream, degrees, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber,
   PDFRawStream, rgb, StandardFonts,
 } from "@cantoo/pdf-lib";
+import { shapeArcPoints } from "../core/shapes";
 import { createStroke } from "../core/stroke";
-import type { EquationObject, FrameObject, PageObject, PlotObject, ShapeObject, TextObject } from "../core/types";
+import type { EquationObject, FrameObject, InstrumentObject, PageObject, PlotObject, ShapeObject, TextObject } from "../core/types";
 import type { BoardAsset, PortableBoard } from "../documents/archive";
+import { instrumentDimensions, instrumentKinds } from "../instruments/geometry";
 import { exportPdf } from "./export";
 import { sourceGeometry } from "./source";
 import { renderEquation } from "../equations/render";
@@ -220,5 +222,35 @@ test("exports transformed Cartesian axes, labels, and separate curve branches as
   assert.match(content, /<78> Tj/i);
   assert.match(content, /<2D3130> Tj/i);
   assert.ok(reopened.context.enumerateIndirectObjects().every(([, object]) =>
+    !(object instanceof PDFRawStream) || object.dict.get(PDFName.of("Subtype")) !== PDFName.of("Image")));
+});
+
+test("omits geometry tools and their bounds by default and can include all of them as vectors", async () => {
+  const arc: ShapeObject = {
+    id: "arc", type: "shape", locked: false, zIndex: 20, transform: unchanged,
+    props: { kind: "arc", points: shapeArcPoints({ x: 40, y: 40 }, 20, 0, Math.PI), size: 2, color: "#192038" },
+  };
+  const tools = instrumentKinds.map((kind, index): InstrumentObject => ({
+    id: kind, type: "instrument", locked: false, zIndex: index,
+    transform: [1, 0, 0, 1, 200 + index * 420, 100],
+    props: { kind, ...instrumentDimensions(kind) },
+  }));
+  const board: PortableBoard = { scene: { version: 1, objects: [...tools, arc] }, assets: [] };
+  const excluded = await PDFDocument.load((await exportPdf(board)).bytes);
+  const arcAlone = await PDFDocument.load((await exportPdf({ scene: { version: 1, objects: [arc] }, assets: [] })).bytes);
+  assert.deepEqual(excluded.getPage(0).getSize(), arcAlone.getPage(0).getSize());
+  const cleanPage = pageStreams(excluded, 0);
+  assert.doesNotMatch(cleanPage, /InstrumentBodyOpacity| Tj/);
+  assert.equal((cleanPage.match(/ c$/gm) ?? []).length, 2);
+  assert.doesNotMatch(cleanPage, /\nh\nS/, "the compass arc remains open");
+
+  const included = await PDFDocument.load((await exportPdf(board, { includeInstruments: true })).bytes);
+  assert.ok(included.getPage(0).getWidth() > 1000);
+  const fullPage = pageStreams(included, 0);
+  assert.match(fullPage, /\/InstrumentBodyOpacity[^\s]+ gs/);
+  assert.match(fullPage, /<636D> Tj/i, "ruler unit stays PDF text");
+  assert.match(fullPage, /<313830B0> Tj/i, "protractor angles stay PDF text");
+  assert.ok(fullPage.indexOf(" c\n") < fullPage.indexOf("1 0 0 1 200 100 cm"), "instruments render above all ink");
+  assert.ok(included.context.enumerateIndirectObjects().every(([, object]) =>
     !(object instanceof PDFRawStream) || object.dict.get(PDFName.of("Subtype")) !== PDFName.of("Image")));
 });

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { PointerEvent } from 'react'
 import type { BoardTool, BrushStyle } from '../canvas/controller'
+import type { InstrumentKind } from '../instruments/geometry'
 import { acceptsPointer, shortcutAction, shortcutAria, shortcutLabel } from '../shortcuts'
 
 export type Dock = 'top' | 'right' | 'bottom' | 'left'
@@ -12,7 +13,7 @@ export const backgrounds: Readonly<Record<Background, string>> = {
 
 function makeTool(id: BoardTool, icon: string) {
   const shortcut = `tool-${id}`
-  return { id, label: shortcutAction(shortcut), key: shortcutLabel(shortcut), ariaKey: shortcutAria(shortcut), icon }
+  return { id, label: shortcutAction(shortcut), key: shortcutLabel(shortcut, true), ariaKey: shortcutAria(shortcut), icon }
 }
 
 export const tools = [
@@ -23,6 +24,12 @@ export const tools = [
 export const shapeTools: typeof tools = [
   makeTool('line', '╱'), makeTool('arrow', '↗'), makeTool('rectangle', '▭'), makeTool('ellipse', '○'), makeTool('polygon', '⬠'),
 ]
+
+export const compassTools = [makeTool('compass', '◯'), makeTool('compass-arc', '◜')]
+
+const guideTools = [
+  ['ruler', '▱'], ['set-square-45', '◿'], ['set-square-30', '◢'], ['protractor', '◠'],
+] as const
 
 const docks: Readonly<Record<Dock, string>> = {
   top: 'Acima', right: 'À direita', bottom: 'Abaixo', left: 'À esquerda',
@@ -45,13 +52,15 @@ type Props = {
   onDock: (dock: Dock) => void
   onTool: (tool: BoardTool) => void
   onPlot: () => void
+  onInstrument: (kind: Exclude<InstrumentKind, 'compass'>) => void
   onFavorite: (index: number) => void
   onEditFavorite: (style: BrushStyle) => void
 }
 
-export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onPlot, onFavorite, onEditFavorite }: Props) {
+export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onPlot, onInstrument, onFavorite, onEditFavorite }: Props) {
   const [dragging, setDragging] = useState(false)
   const shape = shapeTools.find((entry) => entry.id === tool)
+  const compass = compassTools.find((entry) => entry.id === tool)
 
   function endDockDrag(event: PointerEvent<HTMLButtonElement>) {
     if (!dragging) return
@@ -110,6 +119,31 @@ export function Tools({ dock, tool, favorites, favorite, onDock, onTool, onPlot,
             }}>
             <span aria-hidden="true" data-ui-icon>⊞</span>Plano cartesiano<small>{shortcutLabel('new-plot')}</small>
           </button>
+        </div>
+      </details>
+      <details className="tool-settings instruments-menu">
+        <summary aria-label="Instrumentos de geometria" title="Instrumentos de geometria">
+          {compass ? 'Compasso' : 'Instrumentos'}
+        </summary>
+        <div className="tool-settings-body shape-choices">
+          {guideTools.map(([kind, icon]) => {
+            const shortcut = `insert-${kind}`
+            return <button key={kind} type="button" aria-keyshortcuts={shortcutAria(shortcut)} onClick={(event) => {
+              const menu = event.currentTarget.closest('details')
+              if (menu) menu.open = false
+              onInstrument(kind)
+            }}>
+              <span aria-hidden="true" data-ui-icon>{icon}</span>{shortcutAction(shortcut)}<small>{shortcutLabel(shortcut)}</small>
+            </button>
+          })}
+          {compassTools.map(({ id, icon, label, key, ariaKey }) => <button key={id} type="button" aria-pressed={tool === id}
+            aria-keyshortcuts={ariaKey} onClick={(event) => {
+              const menu = event.currentTarget.closest('details')
+              if (menu) menu.open = false
+              onTool(id)
+            }}>
+            <span aria-hidden="true" data-ui-icon>{icon}</span>{label}<small>{key}</small>
+          </button>)}
         </div>
       </details>
       <div className="favorites" role="group" aria-label="Favoritos de cor e espessura">

@@ -1,7 +1,7 @@
-import { shapeArrowHead } from '../core/shapes'
+import { shapeArcSegments, shapeArrowHead } from '../core/shapes'
 import type { Point, ShapeObject } from '../core/types'
 
-export type DragShape = Exclude<ShapeObject['props']['kind'], 'polygon'>
+export type DragShape = Exclude<ShapeObject['props']['kind'], 'polygon' | 'arc'>
 
 export interface ShapeContour {
   readonly points: readonly Point[]
@@ -47,6 +47,21 @@ export function appendVertex(points: readonly Point[], next: Point, minimumDista
 export function hitContours(shape: ShapeObject): readonly ShapeContour[] {
   const { kind, points, size } = shape.props
   if (kind === 'polygon' || kind === 'line') return [{ points, closed: kind === 'polygon' }]
+  if (kind === 'arc') {
+    const outline = points.slice(0, 1)
+    for (const [start, control1, control2, end] of shapeArcSegments(points)) {
+      for (let sample = 1; sample <= 16; sample++) {
+        const t = sample / 16
+        const u = 1 - t
+        const a = u ** 3, b = 3 * u ** 2 * t, c = 3 * u * t ** 2, d = t ** 3
+        outline.push({
+          x: a * start.x + b * control1.x + c * control2.x + d * end.x,
+          y: a * start.y + b * control1.y + c * control2.y + d * end.y,
+        })
+      }
+    }
+    return [{ points: outline, closed: false }]
+  }
   const first = points[0]!, last = points[1]!
   if (kind === 'arrow') {
     return [{ points, closed: false }, { points: shapeArrowHead(first, last, size), closed: false }]

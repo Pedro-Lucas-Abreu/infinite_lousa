@@ -1,5 +1,12 @@
 # Mudanças
 
+## C2 — Instrumentos de geometria
+
+- Abra **Instrumentos** para inserir régua, esquadro de 45°, esquadro de 30°–60° ou transferidor. Use **Seleção** para mover e arraste a alça superior para girar.
+- Com **Caneta**, comece o gesto próximo à borda da régua ou do esquadro. O traço acompanha a borda em linha reta.
+- No **Compasso**, arraste do centro até a borda para desenhar um círculo. Para um arco, faça um arraste para marcar o raio e outro para abrir o arco.
+- Para mostrar os instrumentos no PDF, marque **Arquivo → Incluir instrumentos no PDF**. Círculos, arcos e linhas desenhados entram no PDF por padrão.
+
 ## C1 — Plano cartesiano e gráficos
 
 - Pressione **F2** ou abra **Formas → Plano cartesiano** para inserir. Ajuste os limites, o passo, a cor, a espessura e a proporção 1:1. Com **Seleção**, dê duplo clique para editar.

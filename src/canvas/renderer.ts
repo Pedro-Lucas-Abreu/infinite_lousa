@@ -1,8 +1,8 @@
 import { viewportBounds, worldToScreen } from '../core/camera'
 import type { Scene } from '../core/scene'
 import { strokeOutline } from '../core/stroke'
-import type { Affine, BoardObject, Bounds, Camera, PageObject, Point, Stroke, Viewport } from '../core/types'
-import { drawEquationObject, drawPlotObject, drawShape, drawTextObject } from './drawings'
+import type { Affine, BoardObject, Bounds, Camera, InstrumentObject, PageObject, Point, Stroke, Viewport } from '../core/types'
+import { drawEquationObject, drawInstrument, drawPlotObject, drawShape, drawTextObject } from './drawings'
 import { rectanglePoints, selectionHandles } from './geometry'
 
 export type BoardBackground = 'white' | 'dark' | 'dotted' | 'grid' | 'millimeter'
@@ -31,6 +31,7 @@ export interface BackgroundFrameMetrics {
   visibleStrokes: number
   cacheMisses: number
   timeStamp: number
+  instrumentsChanged: boolean
 }
 
 function createPath(points: readonly Point[]): Path2D {
@@ -55,6 +56,7 @@ export class CanvasRenderer {
   private scaleY = 1
   private liveHasInk = false
   private darkPaper = false
+  private instruments: readonly InstrumentObject[] = []
   viewport: Viewport = { width: 1, height: 1 }
 
   constructor(confirmedCanvas: HTMLCanvasElement, liveCanvas: HTMLCanvasElement,
@@ -93,13 +95,17 @@ export class CanvasRenderer {
     const visible = scene.search(viewportBounds(camera, this.viewport))
     let cacheMisses = 0
     let visibleStrokes = 0
+    const previousDarkPaper = this.darkPaper
+    const instruments: InstrumentObject[] = []
 
     this.clear(this.confirmedContext)
     this.darkPaper = background === 'dark'
     this.drawPaper(background, camera)
     for (const object of visible) {
       if (hidden?.has(object.id)) continue
-      if (object.type === 'stroke') {
+      if (object.type === 'instrument') {
+        instruments.push(object)
+      } else if (object.type === 'stroke') {
         visibleStrokes++
         cacheMisses += Number(this.drawConfirmedStroke(object, camera))
       } else {
@@ -107,8 +113,12 @@ export class CanvasRenderer {
       }
     }
 
+    const instrumentsChanged = this.instruments.length !== instruments.length ||
+      instruments.some((object, index) => object !== this.instruments[index]) ||
+      (instruments.length > 0 && previousDarkPaper !== this.darkPaper)
+    this.instruments = instruments
     const timeStamp = performance.now()
-    return { renderMs: timeStamp - start, visibleStrokes, cacheMisses, timeStamp }
+    return { renderMs: timeStamp - start, visibleStrokes, cacheMisses, timeStamp, instrumentsChanged }
   }
 
   drawConfirmedStroke(stroke: Stroke, camera: Camera): boolean {
@@ -123,12 +133,13 @@ export class CanvasRenderer {
   drawLive(stroke: Stroke | undefined, camera: Camera, overlay?: CanvasOverlay): void {
     if (this.liveHasInk) this.clear(this.liveContext)
     const context = this.liveContext
+    for (const object of this.instruments) this.drawObject(context, object, camera)
     if (stroke) this.paint(context, stroke, createPath(strokeOutline(stroke, false)), camera)
     if (overlay) {
       for (const object of overlay.previewObjects ?? []) this.drawObject(context, object, camera)
       this.drawOverlay(overlay, camera)
     }
-    this.liveHasInk = Boolean(stroke || overlay)
+    this.liveHasInk = Boolean(stroke || overlay || this.instruments.length)
   }
 
   private clear(context: CanvasRenderingContext2D): void {
@@ -168,6 +179,10 @@ export class CanvasRenderer {
     }
 
     this.setObjectTransform(context, object.transform, camera)
+    if (object.type === 'instrument') {
+      drawInstrument(context, object, this.darkPaper)
+      return
+    }
     if (object.type === 'shape') {
       drawShape(context, object, this.boardColor(object.props.color, object.parentId))
       return

@@ -2,6 +2,7 @@ import { Unzip, UnzipInflate, zipSync } from "fflate";
 import type { SceneSnapshot } from "../core/scene";
 import { hasValidSvgPathData } from "../core/svgPath";
 import { type Affine, type BoardObject, type Brush, type EquationPath, type Point, type ShapeKind, type StrokePoint, isPageObject } from "../core/types";
+import { isInstrumentKind } from "../instruments/geometry";
 import { parsePlotExpression } from "../plot/expression";
 import { MAX_PLOT_FUNCTIONS, validatePlotSettings, type PlotSettings } from "../plot/geometry";
 
@@ -197,7 +198,7 @@ function isColor(value: unknown): value is string {
 
 function isShapeKind(value: unknown): value is ShapeKind {
   return value === "line" || value === "arrow" || value === "rectangle" ||
-    value === "ellipse" || value === "polygon";
+    value === "ellipse" || value === "polygon" || value === "arc";
 }
 
 function isBrush(value: unknown): value is Brush {
@@ -271,6 +272,7 @@ function validateScene(scene: unknown): SceneSnapshot {
       const { kind, points, color, size } = props;
       if (!isShapeKind(kind) || !Array.isArray(points) ||
           points.length < (kind === "polygon" ? 3 : 2) ||
+          (kind === "arc" && (points.length < 4 || points.length > 13 || (points.length - 1) % 3 !== 0)) ||
           (pointCount += points.length) > MAX_POINTS || !points.every(isPoint) ||
           !isColor(color) || !finite(size) || size <= 0) {
         throw new Error("Invalid shape geometry or style.");
@@ -281,6 +283,10 @@ function validateScene(scene: unknown): SceneSnapshot {
     const { width, height } = props;
     if (!finite(width) || width <= 0 || !finite(height) || height <= 0) {
       throw new Error("Invalid rectangular object geometry.");
+    }
+    if (object.type === "instrument") {
+      if (!isInstrumentKind(props.kind)) throw new Error("Invalid geometry instrument.");
+      return { ...base, ...attachment, type: "instrument", props: { width, height, kind: props.kind } };
     }
     if (object.type === "frame") {
       if (typeof props.name !== "string" || !finite(props.order)) throw new Error("Invalid frame.");

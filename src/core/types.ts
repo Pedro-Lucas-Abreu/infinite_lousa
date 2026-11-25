@@ -1,4 +1,5 @@
 import type { PlotFunction, PlotSettings } from "../plot/geometry";
+import type { InstrumentKind } from "../instruments/geometry";
 
 export interface Point {
   readonly x: number;
@@ -92,7 +93,7 @@ export interface TextObject extends ObjectBase {
   };
 }
 
-export type ShapeKind = "line" | "arrow" | "rectangle" | "ellipse" | "polygon";
+export type ShapeKind = "line" | "arrow" | "rectangle" | "ellipse" | "polygon" | "arc";
 
 export interface ShapeObject extends ObjectBase {
   readonly type: "shape";
@@ -136,7 +137,17 @@ export interface PlotObject extends ObjectBase {
   };
 }
 
-export type BoardObject = Stroke | PageObject | FrameObject | TextObject | ShapeObject | EquationObject | PlotObject;
+export interface InstrumentObject extends ObjectBase {
+  readonly type: "instrument";
+  readonly parentId?: string;
+  readonly props: {
+    readonly kind: InstrumentKind;
+    readonly width: number;
+    readonly height: number;
+  };
+}
+
+export type BoardObject = Stroke | PageObject | FrameObject | TextObject | ShapeObject | EquationObject | PlotObject | InstrumentObject;
 
 export interface BoardChange {
   readonly before?: BoardObject;

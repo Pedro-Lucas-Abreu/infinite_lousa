@@ -18,6 +18,11 @@
 - The expression parser accepts only numeric expressions, the supported functions and constants. Adaptive sampling clips curves to the plot and separates discontinuity branches. Labels are ASCII and use vector PDF text. The editor caps each plot at 12 functions and each axis at 160 grid intervals.
 - Uniform selection resize preserves 1:1 scaling. Turning the lock back on after a nonuniform resize restores perpendicular axes using the current spans.
 
+## C2 Geometry instruments
+
+- Instruments are scene objects with shared vector geometry for the canvas and opt-in PDF export. Their standard transforms, clipboard operations and undo use the existing scene history. PDF exports omit the guides by default. Compass circles and arcs are separate shape objects.
+- Pen strokes that start within 12 CSS pixels of a ruler or set square edge use that world-space segment for the full gesture. Arc mode takes two drags and uses cubic Bézier segments for the drawing. The draft is transient and Esc cancels it.
+
 ## Milestone 1 decisions
 
 - `src/core` owns scene data, coordinates, spatial queries, and stroke geometry. Keep the model serializable. Canvas contexts, `Path2D` objects and index entries are derived state.
